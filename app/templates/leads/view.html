@@ -1,0 +1,133 @@
+{% extends 'base.html' %}
+{% block title %}{{ lead.company_name }}{% endblock %}
+
+{% block content %}
+
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <div class="d-flex align-items-center">
+    <a href="{{ url_for('leads.index') }}" class="btn btn-sm btn-outline-secondary me-3">
+      <i class="bi bi-arrow-left"></i>
+    </a>
+    <h4 class="fw-bold mb-0">{{ lead.company_name }}</h4>
+    <span class="ms-3 badge bg-{{ action_badge_class.get(lead.action, 'secondary') }} fs-6">
+      {{ lead.action }}
+    </span>
+  </div>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('leads.edit', lead_id=lead.id) }}" class="btn btn-warning btn-sm fw-semibold">
+      <i class="bi bi-pencil me-1"></i>Edit
+    </a>
+    {% if current_user.is_admin %}
+    <button type="button" class="btn btn-danger btn-sm"
+            data-bs-toggle="modal" data-bs-target="#deleteModal">
+      <i class="bi bi-trash me-1"></i>Delete
+    </button>
+    {% endif %}
+  </div>
+</div>
+
+<div class="row g-4">
+
+  <!-- Left column: Contact & Pipeline -->
+  <div class="col-lg-8">
+    <div class="card shadow-sm mb-4">
+      <div class="card-header fw-semibold bg-dark text-white">Contact &amp; Company</div>
+      <div class="card-body p-0">
+        <table class="table table-bordered mb-0 small">
+          {% macro row(label, value, pre=false) %}
+          <tr>
+            <th class="table-light" style="width:200px">{{ label }}</th>
+            <td {% if pre %}style="white-space:pre-wrap"{% endif %}>
+              {{ value if value else '<span class="text-muted">—</span>'|safe }}
+            </td>
+          </tr>
+          {% endmacro %}
+          {{ row('Company Name', lead.company_name) }}
+          {{ row('Contact',      lead.contact) }}
+          {{ row('Phone',        lead.number) }}
+          {{ row('Email',        lead.email) }}
+          {{ row('Address',      lead.address, pre=true) }}
+        </table>
+      </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+      <div class="card-header fw-semibold bg-dark text-white">Pipeline</div>
+      <div class="card-body p-0">
+        <table class="table table-bordered mb-0 small">
+          {{ row('Action',   lead.action) }}
+          {{ row('Progress', lead.progress) }}
+          {{ row('Expected', lead.expected.strftime('%Y-%m-%d') if lead.expected else None) }}
+          {{ row('Potential', ('$' ~ '{:,.2f}'.format(lead.potential|float)) if lead.potential is not none else None) }}
+          {{ row('ROI',      (lead.roi|string ~ '%') if lead.roi is not none else None) }}
+          {{ row('Sq Ft',    '{:,}'.format(lead.sq_ft) if lead.sq_ft is not none else None) }}
+          {{ row('Targets',  lead.targets, pre=true) }}
+          {{ row('Annual Sales / Other Locations', lead.annual_sales_locations, pre=true) }}
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right column: Record info + Notes -->
+  <div class="col-lg-4">
+    <div class="card shadow-sm mb-4">
+      <div class="card-header fw-semibold bg-dark text-white">Record Info</div>
+      <div class="card-body p-0">
+        <table class="table table-bordered mb-0 small">
+          <tr><th class="table-light">ID</th><td>{{ lead.id }}</td></tr>
+          <tr><th class="table-light">Created</th><td>{{ lead.created_at.strftime('%Y-%m-%d %H:%M') }}</td></tr>
+          <tr><th class="table-light">Last Updated</th><td>{{ lead.updated_at.strftime('%Y-%m-%d %H:%M') }}</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div class="card shadow-sm">
+      <div class="card-header fw-semibold bg-dark text-white d-flex justify-content-between align-items-center">
+        <span>Notes &amp; Activity</span>
+        <a href="{{ url_for('leads.edit', lead_id=lead.id) }}#new_note"
+           class="btn btn-sm btn-outline-light py-0 px-2">
+          <i class="bi bi-plus-lg"></i> Add Note
+        </a>
+      </div>
+      <div class="card-body" style="max-height:400px;overflow-y:auto;">
+        {% if lead.notes %}
+        <pre class="small mb-0" style="white-space:pre-wrap;font-family:inherit">{{ lead.notes }}</pre>
+        {% else %}
+        <p class="text-muted small mb-0">No notes yet.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if current_user.is_admin %}
+<!-- Delete confirmation modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header bg-danger text-white">
+        <h5 class="modal-title">
+          <i class="bi bi-exclamation-triangle me-2"></i>Confirm Delete
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        Are you sure you want to permanently delete the lead for
+        <strong>{{ lead.company_name }}</strong>?
+        This action cannot be undone.
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <form method="post" action="{{ url_for('leads.delete', lead_id=lead.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-danger">
+            <i class="bi bi-trash me-1"></i>Delete Lead
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

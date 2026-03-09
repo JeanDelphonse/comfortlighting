@@ -1,0 +1,35 @@
+{% extends 'base.html' %}
+{% block title %}Add Lead{% endblock %}
+
+{% block content %}
+
+<div class="d-flex align-items-center mb-3">
+  <a href="{{ url_for('leads.index') }}" class="btn btn-sm btn-outline-secondary me-3">
+    <i class="bi bi-arrow-left"></i>
+  </a>
+  <h4 class="fw-bold mb-0"><i class="bi bi-plus-circle me-2"></i>Add New Lead</h4>
+</div>
+
+{% if errors %}
+<div class="alert alert-danger">Please correct the highlighted fields below.</div>
+{% endif %}
+
+<div class="card shadow-sm">
+  <div class="card-body">
+    <form method="post" novalidate>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      {% include 'leads/_form.html' %}
+      <hr class="my-4">
+      <div class="d-flex gap-2">
+        <button type="submit" name="action_type" value="save" class="btn btn-warning fw-semibold px-5">
+          <i class="bi bi-floppy me-1"></i>Save Lead
+        </button>
+        <button type="submit" name="action_type" value="cancel" class="btn btn-outline-secondary">
+          Cancel
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}

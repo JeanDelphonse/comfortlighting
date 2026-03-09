@@ -1,0 +1,48 @@
+{% extends 'base.html' %}
+{% block title %}Edit – {{ lead.company_name }}{% endblock %}
+
+{% block content %}
+
+<div class="d-flex align-items-center mb-3">
+  <a href="{{ url_for('leads.view', lead_id=lead.id) }}" class="btn btn-sm btn-outline-secondary me-3">
+    <i class="bi bi-arrow-left"></i>
+  </a>
+  <h4 class="fw-bold mb-0">
+    <i class="bi bi-pencil me-2"></i>Edit Lead
+    <small class="text-muted fw-normal ms-2">{{ lead.company_name }}</small>
+  </h4>
+</div>
+
+{% if errors %}
+<div class="alert alert-danger">Please correct the highlighted fields below.</div>
+{% endif %}
+
+<div class="card shadow-sm">
+  <div class="card-body">
+    <form method="post" novalidate>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      {% include 'leads/_form.html' %}
+
+      <!-- Existing note history -->
+      {% if lead.notes %}
+      <div class="mt-4">
+        <label class="form-label fw-semibold">Note History</label>
+        <pre class="bg-light border rounded p-3 small"
+             style="white-space:pre-wrap;max-height:250px;overflow-y:auto">{{ lead.notes }}</pre>
+      </div>
+      {% endif %}
+
+      <hr class="my-4">
+      <div class="d-flex gap-2">
+        <button type="submit" name="action_type" value="save" class="btn btn-warning fw-semibold px-5">
+          <i class="bi bi-floppy me-1"></i>Save Changes
+        </button>
+        <button type="submit" name="action_type" value="cancel" class="btn btn-outline-secondary">
+          Cancel
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}

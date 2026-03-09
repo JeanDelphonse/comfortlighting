@@ -1,0 +1,47 @@
+/* ComfortLighting – custom styles */
+
+body {
+  background-color: #f8f9fa;
+  font-size: 0.9rem;
+}
+
+.navbar-brand {
+  letter-spacing: 0.03em;
+}
+
+.table th {
+  white-space: nowrap;
+}
+.table th a {
+  white-space: nowrap;
+}
+
+.card-header {
+  font-size: 0.875rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.table .badge {
+  font-size: 0.75rem;
+}
+
+.table thead a:hover {
+  text-decoration: underline !important;
+}
+
+body.bg-dark .card {
+  border: none;
+}
+
+pre {
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+
+@media (max-width: 768px) {
+  .container-fluid.py-3 {
+    padding-left: 0.75rem !important;
+    padding-right: 0.75rem !important;
+  }
+}

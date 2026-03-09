@@ -1,0 +1,146 @@
+{#
+  Reusable lead form fields partial.
+  Requires: form_data (dict), errors (dict), action_values, progress_values
+#}
+
+{% macro field_error(field) %}
+  {% if errors.get(field) %}
+  <div class="invalid-feedback">{{ errors[field] }}</div>
+  {% endif %}
+{% endmacro %}
+
+{% macro cls(field) %}{{ ' is-invalid' if errors.get(field) else '' }}{% endmacro %}
+{% macro val(field, default='') %}{{ form_data.get(field, default) }}{% endmacro %}
+
+<div class="row g-3">
+
+  <!-- Company Name -->
+  <div class="col-md-6">
+    <label class="form-label fw-semibold">Company Name <span class="text-danger">*</span></label>
+    <input type="text" name="company_name"
+           class="form-control{{ cls('company_name') }}"
+           value="{{ val('company_name') }}" required maxlength="255">
+    {{ field_error('company_name') }}
+  </div>
+
+  <!-- Action -->
+  <div class="col-md-3">
+    <label class="form-label fw-semibold">Action <span class="text-danger">*</span></label>
+    <select name="action" class="form-select{{ cls('action') }}" required>
+      <option value="">— Select —</option>
+      {% for v in action_values %}
+      <option value="{{ v }}" {{ 'selected' if form_data.get('action') == v }}>{{ v }}</option>
+      {% endfor %}
+    </select>
+    {{ field_error('action') }}
+  </div>
+
+  <!-- Progress -->
+  <div class="col-md-3">
+    <label class="form-label fw-semibold">Progress</label>
+    <select name="progress" class="form-select{{ cls('progress') }}">
+      <option value="">— Select —</option>
+      {% for v in progress_values %}
+      <option value="{{ v }}" {{ 'selected' if form_data.get('progress') == v }}>{{ v }}</option>
+      {% endfor %}
+    </select>
+    {{ field_error('progress') }}
+  </div>
+
+  <!-- Contact -->
+  <div class="col-md-6">
+    <label class="form-label fw-semibold">Contact <span class="text-danger">*</span></label>
+    <input type="text" name="contact"
+           class="form-control{{ cls('contact') }}"
+           value="{{ val('contact') }}" required maxlength="255"
+           placeholder="Name and title">
+    {{ field_error('contact') }}
+  </div>
+
+  <!-- Phone -->
+  <div class="col-md-3">
+    <label class="form-label fw-semibold">Phone <span class="text-danger">*</span></label>
+    <input type="tel" name="number"
+           class="form-control{{ cls('number') }}"
+           value="{{ val('number') }}" required maxlength="30">
+    {{ field_error('number') }}
+  </div>
+
+  <!-- Email -->
+  <div class="col-md-3">
+    <label class="form-label fw-semibold">Email <span class="text-danger">*</span></label>
+    <input type="email" name="email"
+           class="form-control{{ cls('email') }}"
+           value="{{ val('email') }}" required maxlength="255">
+    {{ field_error('email') }}
+  </div>
+
+  <!-- Address -->
+  <div class="col-12">
+    <label class="form-label fw-semibold">Address</label>
+    <textarea name="address" class="form-control{{ cls('address') }}" rows="2">{{ val('address') }}</textarea>
+    {{ field_error('address') }}
+  </div>
+
+  <!-- Sq Ft -->
+  <div class="col-md-3">
+    <label class="form-label fw-semibold">Sq Ft</label>
+    <input type="number" name="sq_ft"
+           class="form-control{{ cls('sq_ft') }}"
+           value="{{ val('sq_ft') }}" min="0" step="1">
+    {{ field_error('sq_ft') }}
+  </div>
+
+  <!-- Potential -->
+  <div class="col-md-3">
+    <label class="form-label fw-semibold">Potential ($)</label>
+    <input type="number" name="potential"
+           class="form-control{{ cls('potential') }}"
+           value="{{ val('potential') }}" min="0" step="0.01">
+    {{ field_error('potential') }}
+  </div>
+
+  <!-- ROI -->
+  <div class="col-md-3">
+    <label class="form-label fw-semibold">ROI (%)</label>
+    <input type="number" name="roi"
+           class="form-control{{ cls('roi') }}"
+           value="{{ val('roi') }}" min="0" step="0.01" max="999.99">
+    {{ field_error('roi') }}
+  </div>
+
+  <!-- Expected Close -->
+  <div class="col-md-3">
+    <label class="form-label fw-semibold">Expected Close</label>
+    <input type="date" name="expected"
+           class="form-control{{ cls('expected') }}"
+           value="{{ val('expected') }}">
+    {{ field_error('expected') }}
+  </div>
+
+  <!-- Targets -->
+  <div class="col-md-6">
+    <label class="form-label fw-semibold">Lighting Targets</label>
+    <textarea name="targets" class="form-control{{ cls('targets') }}" rows="2"
+              placeholder="e.g. Clean rooms, loading docks, aisles">{{ val('targets') }}</textarea>
+    {{ field_error('targets') }}
+  </div>
+
+  <!-- Annual Sales / Other Locations -->
+  <div class="col-md-6">
+    <label class="form-label fw-semibold">Annual Sales / Other Locations</label>
+    <textarea name="annual_sales_locations"
+              class="form-control{{ cls('annual_sales_locations') }}" rows="2"
+              placeholder="e.g. $30M revenue. 4 Midwest facilities.">{{ val('annual_sales_locations') }}</textarea>
+    {{ field_error('annual_sales_locations') }}
+  </div>
+
+  <!-- New Note -->
+  <div class="col-12">
+    <label class="form-label fw-semibold">Add Note</label>
+    <textarea name="new_note" id="new_note" class="form-control" rows="3"
+              placeholder="Enter a new note – it will be prepended with a timestamp to the note history."></textarea>
+    <div class="form-text">Existing notes are preserved. New entries are prepended with date/time.</div>
+  </div>
+
+</div>
