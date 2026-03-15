@@ -136,8 +136,8 @@ def index():
     if request.args.get('export') == 'csv':
         return _export_csv()
 
-    # Get WIP leads separately
-    wip_leads = Lead.query.filter_by(wip=1).order_by(Lead.wip_since.desc()).all()
+    # WIP = all leads whose progress is 'In Progress'
+    wip_leads = Lead.query.filter(Lead.progress == 'In Progress').order_by(Lead.wip_since.desc(), Lead.updated_at.desc()).all()
     wip_count = len(wip_leads)
 
     q            = request.args.get('q', '').strip()
@@ -158,7 +158,10 @@ def index():
     if direction not in ('ASC', 'DESC'):
         direction = 'DESC'
 
-    query = Lead.query
+    # Exclude 'In Progress' leads — they appear in the WIP section above
+    query = Lead.query.filter(
+        db.or_(Lead.progress != 'In Progress', Lead.progress.is_(None))
+    )
 
     if q:
         like = f'%{q}%'
@@ -438,38 +441,38 @@ def delete(lead_id: int):
 @leads_bp.route('/leads/<int:lead_id>/wip', methods=['PATCH'])
 @login_required
 def toggle_wip(lead_id: int):
-    """Toggle WIP status for a lead. Auto-updates PROGRESS to 'In Progress' when moving to WIP."""
+    """Toggle WIP status for a lead via drag-and-drop. Sets progress='In Progress' to add; clears to remove."""
     lead = db.get_or_404(Lead, lead_id)
     data = request.get_json()
     if not data or 'wip' not in data:
         return jsonify({'success': False, 'error': 'Missing wip field'}), 400
 
     new_wip = bool(data['wip'])
-    old_wip = bool(lead.wip)
+    currently_wip = (lead.progress == 'In Progress')
 
     # No change
-    if old_wip == new_wip:
+    if currently_wip == new_wip:
         return jsonify({
             'success': True,
-            'wip': bool(lead.wip),
+            'wip': currently_wip,
             'wip_since': lead.wip_since.isoformat() if lead.wip_since else None,
             'progress': lead.progress,
         })
 
-    lead.wip = 1 if new_wip else 0
     if new_wip:
+        lead.progress = 'In Progress'
+        lead.wip = 1
         lead.wip_since = datetime.utcnow()
-        # Auto-update PROGRESS to "In Progress" if not already set
-        if lead.progress != 'In Progress':
-            lead.progress = 'In Progress'
     else:
+        lead.progress = None
+        lead.wip = 0
         lead.wip_since = None
 
     db.session.commit()
 
     return jsonify({
         'success': True,
-        'wip': bool(lead.wip),
+        'wip': new_wip,
         'wip_since': lead.wip_since.isoformat() if lead.wip_since else None,
         'progress': lead.progress,
     })
