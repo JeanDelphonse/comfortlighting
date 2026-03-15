@@ -5,10 +5,10 @@ from datetime import datetime
 from functools import wraps
 
 from flask import (Blueprint, render_template, redirect, url_for,
-                   request, flash, session, Response, abort)
+                   request, flash, session, Response, abort, jsonify)
 from flask_login import login_required, current_user
 
-from ..models import db, Lead
+from ..models import db, Lead, User
 from ..constants import ACTION_VALUES, PROGRESS_VALUES, ACTION_BADGE_CLASS, LEADS_PER_PAGE
 
 leads_bp = Blueprint('leads', __name__)
@@ -97,16 +97,34 @@ def validate_lead(form_data: dict) -> tuple[dict, dict]:
     else:
         data['expected'] = None
 
+    uid_raw = form_data.get('assigned_user_id', '').strip()
+    if uid_raw:
+        try:
+            uid = int(uid_raw)
+            active_user = User.query.filter_by(id=uid, active=True).first()
+            if not active_user:
+                errors['assigned_user_id'] = 'Selected user is not valid.'
+                data['assigned_user_id'] = None
+            else:
+                data['assigned_user_id'] = uid
+        except ValueError:
+            errors['assigned_user_id'] = 'Selected user is not valid.'
+            data['assigned_user_id'] = None
+    else:
+        data['assigned_user_id'] = None
+
     return data, errors
 
 
 # ── Context helper ────────────────────────────────────────────────────────────
 
 def lead_context() -> dict:
+    active_users = User.query.filter_by(active=True).order_by(User.username.asc()).all()
     return dict(
         action_values=ACTION_VALUES,
         progress_values=PROGRESS_VALUES,
         action_badge_class=ACTION_BADGE_CLASS,
+        active_users=active_users,
     )
 
 
@@ -118,17 +136,23 @@ def index():
     if request.args.get('export') == 'csv':
         return _export_csv()
 
-    q          = request.args.get('q', '').strip()
-    f_action   = request.args.get('action', '').strip()
-    f_progress = request.args.get('progress', '').strip()
-    date_from  = request.args.get('date_from', '').strip()
-    date_to    = request.args.get('date_to', '').strip()
-    sort       = request.args.get('sort', 'created_at')
-    direction  = request.args.get('dir', 'DESC').upper()
-    page       = max(1, int(request.args.get('page', 1) or 1))
+    # Get WIP leads separately
+    wip_leads = Lead.query.filter_by(wip=1).order_by(Lead.wip_since.desc()).all()
+    wip_count = len(wip_leads)
+
+    q            = request.args.get('q', '').strip()
+    f_action     = request.args.get('action', '').strip()
+    f_progress   = request.args.get('progress', '').strip()
+    f_assigned   = request.args.get('assigned_user', '').strip()
+    date_from    = request.args.get('date_from', '').strip()
+    date_to      = request.args.get('date_to', '').strip()
+    sort         = request.args.get('sort', 'created_at')
+    direction    = request.args.get('dir', 'DESC').upper()
+    page         = max(1, int(request.args.get('page', 1) or 1))
 
     allowed_sorts = {'id', 'company_name', 'action', 'contact', 'progress',
-                     'expected', 'potential', 'created_at', 'updated_at'}
+                     'expected', 'potential', 'created_at', 'updated_at',
+                     'assigned_user'}
     if sort not in allowed_sorts:
         sort = 'created_at'
     if direction not in ('ASC', 'DESC'):
@@ -149,13 +173,22 @@ def index():
         query = query.filter(Lead.action == f_action)
     if f_progress:
         query = query.filter(Lead.progress == f_progress)
+    if f_assigned == 'unassigned':
+        query = query.filter(Lead.assigned_user_id.is_(None))
+    elif f_assigned and f_assigned.isdigit():
+        query = query.filter(Lead.assigned_user_id == int(f_assigned))
     if date_from:
         query = query.filter(Lead.expected >= date_from)
     if date_to:
         query = query.filter(Lead.expected <= date_to)
 
-    sort_col = getattr(Lead, sort)
-    query = query.order_by(sort_col.desc() if direction == 'DESC' else sort_col.asc())
+    if sort == 'assigned_user':
+        query = query.outerjoin(User, Lead.assigned_user_id == User.id)
+        sort_expr = User.username.asc() if direction == 'ASC' else User.username.desc()
+    else:
+        sort_col = getattr(Lead, sort)
+        sort_expr = sort_col.desc() if direction == 'DESC' else sort_col.asc()
+    query = query.order_by(sort_expr)
 
     pagination = query.paginate(page=page, per_page=LEADS_PER_PAGE, error_out=False)
 
@@ -163,7 +196,11 @@ def index():
         'leads/index.html',
         leads=pagination.items,
         pagination=pagination,
+        wip_leads=wip_leads,
+        wip_count=wip_count,
+        now=datetime.utcnow(),
         q=q, f_action=f_action, f_progress=f_progress,
+        f_assigned=f_assigned,
         date_from=date_from, date_to=date_to,
         sort=sort, direction=direction,
         **lead_context(),
@@ -174,6 +211,7 @@ def _export_csv() -> Response:
     q          = request.args.get('q', '').strip()
     f_action   = request.args.get('action', '').strip()
     f_progress = request.args.get('progress', '').strip()
+    f_assigned = request.args.get('assigned_user', '').strip()
     date_from  = request.args.get('date_from', '').strip()
     date_to    = request.args.get('date_to', '').strip()
 
@@ -187,6 +225,10 @@ def _export_csv() -> Response:
         )
     if f_action:   query = query.filter(Lead.action == f_action)
     if f_progress: query = query.filter(Lead.progress == f_progress)
+    if f_assigned == 'unassigned':
+        query = query.filter(Lead.assigned_user_id.is_(None))
+    elif f_assigned and f_assigned.isdigit():
+        query = query.filter(Lead.assigned_user_id == int(f_assigned))
     if date_from:  query = query.filter(Lead.expected >= date_from)
     if date_to:    query = query.filter(Lead.expected <= date_to)
 
@@ -196,14 +238,15 @@ def _export_csv() -> Response:
     writer = csv.writer(output)
     writer.writerow([
         'ID', 'Created', 'Updated', 'Company Name', 'Action', 'Contact',
-        'Address', 'Phone', 'Email', 'Notes', 'Sq Ft', 'Targets',
+        'Address', 'Phone', 'Email', 'Notes', 'Assigned To', 'Sq Ft', 'Targets',
         'Potential', 'Progress', 'Expected', 'ROI', 'Annual Sales / Locations',
     ])
     for l in leads:
         writer.writerow([
             l.id, l.created_at, l.updated_at, l.company_name, l.action,
-            l.contact, l.address, l.number, l.email, l.notes, l.sq_ft,
-            l.targets, l.potential, l.progress, l.expected, l.roi,
+            l.contact, l.address, l.number, l.email, l.notes,
+            l.assigned_user.username if l.assigned_user else '',
+            l.sq_ft, l.targets, l.potential, l.progress, l.expected, l.roi,
             l.annual_sales_locations,
         ])
 
@@ -245,6 +288,7 @@ def add():
                 number=data['number'],
                 email=data['email'],
                 notes=notes,
+                assigned_user_id=data['assigned_user_id'],
                 sq_ft=data['sq_ft'],
                 targets=data['targets'],
                 potential=data['potential'],
@@ -271,7 +315,43 @@ def add():
 @login_required
 def view(lead_id: int):
     lead = db.get_or_404(Lead, lead_id)
-    return render_template('leads/view.html', lead=lead, **lead_context())
+    from ..models import Proposal, Contract, LeadActivity
+
+    proposal = Proposal.query.filter_by(lead_id=lead_id).first()
+    contract = Contract.query.filter_by(lead_id=lead_id).first()
+
+    recent_activities = []
+    activity_stats    = None
+    if True:
+        recent_activities = (LeadActivity.query
+                             .filter_by(lead_id=lead_id)
+                             .order_by(LeadActivity.activity_date.desc())
+                             .limit(5).all())
+        total_entries = LeadActivity.query.filter_by(lead_id=lead_id).count()
+        total_spend   = (db.session.query(db.func.sum(LeadActivity.amount))
+                         .filter_by(lead_id=lead_id).scalar() or 0)
+        pending_count = LeadActivity.query.filter_by(lead_id=lead_id, status='Submitted').count()
+        reimb_amt     = (db.session.query(db.func.sum(LeadActivity.amount))
+                         .filter(LeadActivity.lead_id == lead_id,
+                                 LeadActivity.reimbursable == True,
+                                 LeadActivity.status.in_(['Submitted', 'Approved']))
+                         .scalar() or 0)
+        activity_stats = {
+            'total_entries':    total_entries,
+            'total_spend':      float(total_spend),
+            'pending_count':    pending_count,
+            'reimbursable_amt': float(reimb_amt),
+        }
+
+    return render_template(
+        'leads/view.html',
+        lead=lead,
+        proposal=proposal,
+        contract=contract,
+        recent_activities=recent_activities,
+        activity_stats=activity_stats,
+        **lead_context(),
+    )
 
 
 @leads_bp.route('/leads/<int:lead_id>/edit', methods=['GET', 'POST'])
@@ -302,6 +382,7 @@ def edit(lead_id: int):
             lead.address                = data['address']
             lead.number                 = data['number']
             lead.email                  = data['email']
+            lead.assigned_user_id       = data['assigned_user_id']
             lead.sq_ft                  = data['sq_ft']
             lead.targets                = data['targets']
             lead.potential              = data['potential']
@@ -323,6 +404,7 @@ def edit(lead_id: int):
             'address':                lead.address or '',
             'number':                 lead.number,
             'email':                  lead.email,
+            'assigned_user_id':       str(lead.assigned_user_id) if lead.assigned_user_id is not None else '',
             'sq_ft':                  str(lead.sq_ft) if lead.sq_ft is not None else '',
             'targets':                lead.targets or '',
             'potential':              str(lead.potential) if lead.potential is not None else '',
@@ -351,3 +433,43 @@ def delete(lead_id: int):
     db.session.commit()
     flash(f'Lead "{name}" has been deleted.', 'success')
     return redirect(url_for('leads.index'))
+
+
+@leads_bp.route('/leads/<int:lead_id>/wip', methods=['PATCH'])
+@login_required
+def toggle_wip(lead_id: int):
+    """Toggle WIP status for a lead. Auto-updates PROGRESS to 'In Progress' when moving to WIP."""
+    lead = db.get_or_404(Lead, lead_id)
+    data = request.get_json()
+    if not data or 'wip' not in data:
+        return jsonify({'success': False, 'error': 'Missing wip field'}), 400
+
+    new_wip = bool(data['wip'])
+    old_wip = bool(lead.wip)
+
+    # No change
+    if old_wip == new_wip:
+        return jsonify({
+            'success': True,
+            'wip': bool(lead.wip),
+            'wip_since': lead.wip_since.isoformat() if lead.wip_since else None,
+            'progress': lead.progress,
+        })
+
+    lead.wip = 1 if new_wip else 0
+    if new_wip:
+        lead.wip_since = datetime.utcnow()
+        # Auto-update PROGRESS to "In Progress" if not already set
+        if lead.progress != 'In Progress':
+            lead.progress = 'In Progress'
+    else:
+        lead.wip_since = None
+
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'wip': bool(lead.wip),
+        'wip_since': lead.wip_since.isoformat() if lead.wip_since else None,
+        'progress': lead.progress,
+    })

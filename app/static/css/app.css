@@ -45,3 +45,109 @@ pre {
     padding-right: 0.75rem !important;
   }
 }
+
+/* WIP Board Styles */
+#wip-section {
+  border-color: #0d6efd !important;
+}
+
+#wip-section .card-header {
+  background-color: #0d6efd;
+}
+
+.wip-card {
+  cursor: grab;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.wip-card:active {
+  cursor: grabbing;
+}
+
+.wip-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+}
+
+.wip-card .drag-handle {
+  cursor: grab;
+}
+
+.wip-card .drag-handle:active {
+  cursor: grabbing;
+}
+
+.wip-remove {
+  opacity: 0.5;
+  transition: opacity 0.15s;
+}
+
+.wip-remove:hover {
+  opacity: 1;
+}
+
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 4px;
+}
+
+.bg-success {
+  background-color: #198754 !important;
+}
+
+#wip-empty {
+  border-color: #dee2e6 !important;
+}
+
+#lead-list-body tr {
+  cursor: grab;
+}
+
+#lead-list-body tr:active {
+  cursor: grabbing;
+}
+
+#lead-list-body .sortable-ghost {
+  opacity: 0.4;
+  background-color: #e9ecef;
+}
+
+#lead-list-body .sortable-chosen {
+  background-color: #cfe2ff;
+}
+
+.wip-grid .sortable-ghost {
+  opacity: 0.4;
+  background-color: #e9ecef;
+}
+
+.wip-grid .sortable-chosen {
+  background-color: #cfe2ff;
+}
+
+/* Toast overrides for dark/light mode compatibility */
+.toast-container .toast {
+  min-width: 300px;
+}
+
+#toast-container .toast {
+  --bs-toast-bg: #ffffff;
+  --bs-toast-border-color: #dee2e6;
+  --bs-toast-header-bg: #0d6efd;
+  --bs-toast-header-color: #ffffff;
+}
+
+/* Drag and drop visual feedback */
+.sortable-drag {
+  opacity: 0.9;
+  transform: rotate(2deg);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+}
+
+.drop-zone-active {
+  border: 2px dashed #0d6efd !important;
+  background-color: rgba(13, 110, 253, 0.05) !important;
+}

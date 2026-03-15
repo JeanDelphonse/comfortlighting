@@ -5,7 +5,11 @@ RewriteEngine On
 RewriteCond %{HTTPS} off
 RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 
-# ── Route all requests through Passenger (Python/Flask) ─────────────────────
+# ── Serve static assets directly from app/static/ (bypass Passenger) ────────
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^static/(.*)$ app/static/$1 [L]
+
+# ── Route all other requests through Passenger (Python/Flask) ────────────────
 PassengerEnabled On
 PassengerAppType wsgi
 PassengerStartupFile passenger_wsgi.py

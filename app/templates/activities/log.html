@@ -1,0 +1,177 @@
+{% extends 'base.html' %}
+{% block title %}Activity Log – {{ lead.company_name }}{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <div class="d-flex align-items-center">
+    <a href="{{ url_for('leads.view', lead_id=lead.id) }}" class="btn btn-sm btn-outline-secondary me-3">
+      <i class="bi bi-arrow-left"></i>
+    </a>
+    <div>
+      <h4 class="fw-bold mb-0">
+        <i class="bi bi-clipboard2-check me-2"></i>Activity &amp; Expenses
+      </h4>
+      <div class="text-muted small">{{ lead.company_name }}</div>
+    </div>
+  </div>
+  <a href="{{ url_for('activities.add', lead_id=lead.id) }}" class="btn btn-warning btn-sm fw-semibold">
+    <i class="bi bi-plus-lg me-1"></i>Add Entry
+  </a>
+</div>
+
+<!-- Summary bar -->
+<div class="row g-2 text-center mb-3">
+  <div class="col-6 col-sm-3">
+    <div class="card border-0 bg-light py-2">
+      <div class="fw-bold fs-5">{{ pagination.total }}</div>
+      <div class="text-muted small">Total Entries</div>
+    </div>
+  </div>
+  <div class="col-6 col-sm-3">
+    <div class="card border-0 bg-light py-2">
+      <div class="fw-bold fs-5">${{ '{:,.2f}'.format(total_spend) }}</div>
+      <div class="text-muted small">Total Spend</div>
+    </div>
+  </div>
+  <div class="col-6 col-sm-3">
+    <div class="card border-0 bg-light py-2">
+      <div class="fw-bold fs-5 {{ 'text-warning' if pending_count > 0 }}">{{ pending_count }}</div>
+      <div class="text-muted small">Pending Approval</div>
+    </div>
+  </div>
+  <div class="col-6 col-sm-3">
+    <div class="card border-0 bg-light py-2">
+      <div class="fw-bold fs-5">${{ '{:,.2f}'.format(reimbursable_amt) }}</div>
+      <div class="text-muted small">Reimbursable</div>
+    </div>
+  </div>
+</div>
+
+<!-- Table -->
+{% macro th(col, label) %}
+<th>
+  <a href="{{ url_for('activities.log', lead_id=lead.id, sort=col,
+             dir='ASC' if sort == col and direction == 'DESC' else 'DESC') }}"
+     class="text-white text-decoration-none">
+    {{ label }}
+    {% if sort == col %}
+    <i class="bi bi-sort-{{ 'up' if direction == 'ASC' else 'down' }} ms-1 small"></i>
+    {% else %}
+    <i class="bi bi-arrow-down-up text-muted ms-1 small"></i>
+    {% endif %}
+  </a>
+</th>
+{% endmacro %}
+
+<div class="table-responsive">
+<table class="table table-hover table-bordered align-middle small">
+  <thead class="table-dark">
+    <tr>
+      {{ th('activity_date', 'Date') }}
+      <th>Category / Sub</th>
+      {{ th('activity_type', 'Activity') }}
+      {{ th('destination', 'Destination') }}
+      {{ th('amount', 'Amount') }}
+      {{ th('outcome', 'Outcome') }}
+      {{ th('status', 'Status') }}
+      <th>Rep</th>
+      <th class="text-center">Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% if not entries %}
+  <tr><td colspan="9" class="text-center text-muted py-4">No entries yet.</td></tr>
+  {% else %}
+  {% for e in entries %}
+  <tr>
+    <td>{{ e.activity_date.strftime('%Y-%m-%d') }}</td>
+    <td>
+      {{ e.category.name if e.category else '—' }}
+      {% if e.subcategory %}
+      <br><span class="text-muted">{{ e.subcategory.name }}</span>
+      {% endif %}
+    </td>
+    <td>{{ e.activity_type }}</td>
+    <td>{{ e.destination[:45] }}{{ '…' if e.destination|length > 45 else '' }}</td>
+    <td class="text-end">
+      {% if e.amount is not none %}
+        ${{ '{:,.2f}'.format(e.amount|float) }}
+        {% if e.miles_driven %}
+        <br><span class="text-muted">{{ e.miles_driven }} mi</span>
+        {% endif %}
+      {% else %}—{% endif %}
+      {% if e.amount is not none and e.amount|float > 25 and not e.receipt_attached %}
+      <i class="bi bi-exclamation-triangle text-warning ms-1"
+         title="Entry over $25 — receipt recommended"></i>
+      {% endif %}
+    </td>
+    <td>
+      <span class="badge bg-{{ 'success' if e.outcome == 'Positive' else ('danger' if e.outcome == 'Negative' else ('secondary' if e.outcome == 'No Response' else 'warning text-dark')) }}">
+        {{ e.outcome }}
+      </span>
+    </td>
+    <td>
+      <span class="badge bg-{{ status_badge.get(e.status, 'secondary') }}">{{ e.status }}</span>
+    </td>
+    <td>{{ e.user.username if e.user else '—' }}</td>
+    <td class="text-center">
+      <a href="{{ url_for('activities.view_entry', lead_id=lead.id, entry_id=e.id) }}"
+         class="btn btn-sm btn-outline-primary py-0 px-2" title="View"><i class="bi bi-eye"></i></a>
+      {% if e.status == 'Draft' or current_user.is_admin %}
+      <a href="{{ url_for('activities.edit', lead_id=lead.id, entry_id=e.id) }}"
+         class="btn btn-sm btn-outline-secondary py-0 px-2" title="Edit"><i class="bi bi-pencil"></i></a>
+      {% endif %}
+      {% if e.status == 'Draft' %}
+      <form method="post"
+            action="{{ url_for('activities.submit', lead_id=lead.id, entry_id=e.id) }}"
+            class="d-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-sm btn-outline-success py-0 px-2"
+                title="Submit for approval">
+          <i class="bi bi-send"></i>
+        </button>
+      </form>
+      <form method="post"
+            action="{{ url_for('activities.delete', lead_id=lead.id, entry_id=e.id) }}"
+            class="d-inline"
+            onsubmit="return confirm('Delete this entry?')">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-2"
+                title="Delete">
+          <i class="bi bi-trash"></i>
+        </button>
+      </form>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+  {% endif %}
+  </tbody>
+</table>
+</div>
+
+{% if pagination.pages > 1 %}
+<nav>
+  <ul class="pagination pagination-sm justify-content-center">
+    <li class="page-item {{ 'disabled' if not pagination.has_prev }}">
+      <a class="page-link" href="{{ url_for('activities.log', lead_id=lead.id,
+         page=pagination.prev_num, sort=sort, dir=direction) }}">Previous</a>
+    </li>
+    {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=3, right_current=3) %}
+      {% if p %}
+      <li class="page-item {{ 'active' if p == pagination.page }}">
+        <a class="page-link" href="{{ url_for('activities.log', lead_id=lead.id,
+           page=p, sort=sort, dir=direction) }}">{{ p }}</a>
+      </li>
+      {% else %}
+      <li class="page-item disabled"><span class="page-link">…</span></li>
+      {% endif %}
+    {% endfor %}
+    <li class="page-item {{ 'disabled' if not pagination.has_next }}">
+      <a class="page-link" href="{{ url_for('activities.log', lead_id=lead.id,
+         page=pagination.next_num, sort=sort, dir=direction) }}">Next</a>
+    </li>
+  </ul>
+</nav>
+{% endif %}
+{% endblock %}

@@ -5,6 +5,14 @@
 
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h4 class="fw-bold mb-0"><i class="bi bi-people-fill me-2"></i>User Management</h4>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('admin.expense_queue') }}" class="btn btn-sm btn-outline-dark">
+      <i class="bi bi-receipt me-1"></i>Expense Queue
+    </a>
+    <a href="{{ url_for('admin.clause_templates') }}" class="btn btn-sm btn-outline-dark">
+      <i class="bi bi-file-earmark-lock2 me-1"></i>Clause Templates
+    </a>
+  </div>
 </div>
 
 <div class="row g-4">
@@ -33,8 +41,8 @@
             </td>
             <td>{{ u.email }}</td>
             <td>
-              <span class="badge bg-{{ 'warning text-dark' if u.role == 'admin' else 'primary' }}">
-                {{ u.role }}
+              <span class="badge bg-{{ 'warning text-dark' if u.role == 'admin' else ('info text-dark' if u.role == 'legal' else 'primary') }}">
+                {{ u.role | capitalize }}
               </span>
             </td>
             <td>
@@ -149,6 +157,7 @@
             <label class="form-label small fw-semibold">Role</label>
             <select name="role" class="form-select form-select-sm">
               <option value="sales" {{ 'selected' if (form_post.get('role') if form_post else '') == 'sales' }}>Sales User</option>
+              <option value="legal" {{ 'selected' if (form_post.get('role') if form_post else '') == 'legal' }}>Legal</option>
               <option value="admin" {{ 'selected' if (form_post.get('role') if form_post else '') == 'admin' }}>Admin</option>
             </select>
           </div>

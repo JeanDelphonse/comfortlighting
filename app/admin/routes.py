@@ -1,9 +1,13 @@
+import csv
+import io
+from datetime import datetime
 from functools import wraps
-from flask import Blueprint, render_template, redirect, url_for, request, flash
+
+from flask import Blueprint, render_template, redirect, url_for, request, flash, Response
 from flask_login import login_required, current_user
 from sqlalchemy.exc import IntegrityError
 
-from ..models import db, User
+from ..models import db, User, LeadActivity, Lead, SystemConfig
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
 
@@ -40,7 +44,7 @@ def users():
                 errors['email'] = 'Valid email required.'
             if len(password) < 8:
                 errors['password'] = 'Password must be at least 8 characters.'
-            if role not in ('admin', 'sales'):
+            if role not in ('admin', 'sales', 'legal'):
                 errors['role'] = 'Invalid role.'
 
             if not errors:
@@ -83,3 +87,233 @@ def users():
     all_users = User.query.order_by(User.id).all()
     return render_template('admin/users.html', all_users=all_users, errors=errors,
                            form_post=request.form)
+
+
+# ── Clause Templates ─────────────────────────────────────────────────────────
+from ..models import ClauseTemplate
+
+@admin_bp.route('/clause-templates', methods=['GET'])
+@login_required
+@admin_required
+def clause_templates():
+    templates = ClauseTemplate.query.order_by(ClauseTemplate.clause_key).all()
+    return render_template('admin/clause_templates.html', templates=templates)
+
+
+# ── Expense Queue ─────────────────────────────────────────────────────────────
+
+@admin_bp.route('/expenses')
+@login_required
+@admin_required
+def expense_queue():
+    f_status   = request.args.get('status', 'Submitted').strip()
+    f_lead_id  = request.args.get('lead_id', '').strip()
+    f_user_id  = request.args.get('user_id', '').strip()
+    f_from     = request.args.get('date_from', '').strip()
+    f_to       = request.args.get('date_to', '').strip()
+    page       = max(1, int(request.args.get('page', 1) or 1))
+
+    valid_statuses = ['Submitted', 'Approved', 'Rejected', 'Reimbursed', 'Draft', '']
+    if f_status not in valid_statuses:
+        f_status = 'Submitted'
+
+    q = LeadActivity.query.join(Lead, LeadActivity.lead_id == Lead.id)
+    if f_status:
+        q = q.filter(LeadActivity.status == f_status)
+    if f_lead_id and f_lead_id.isdigit():
+        q = q.filter(LeadActivity.lead_id == int(f_lead_id))
+    if f_user_id and f_user_id.isdigit():
+        q = q.filter(LeadActivity.user_id == int(f_user_id))
+    if f_from:
+        q = q.filter(LeadActivity.activity_date >= f_from)
+    if f_to:
+        q = q.filter(LeadActivity.activity_date <= f_to)
+
+    q = q.order_by(LeadActivity.submitted_at.desc(),
+                   LeadActivity.activity_date.desc())
+    pagination = q.paginate(page=page, per_page=25, error_out=False)
+
+    all_users = User.query.order_by(User.username).all()
+    mileage_rate = float(SystemConfig.get('irs_mileage_rate', '0.6700'))
+
+    return render_template(
+        'admin/expense_queue.html',
+        entries=pagination.items,
+        pagination=pagination,
+        all_users=all_users,
+        f_status=f_status, f_lead_id=f_lead_id, f_user_id=f_user_id,
+        f_from=f_from, f_to=f_to,
+        mileage_rate=mileage_rate,
+    )
+
+
+@admin_bp.route('/expenses/approve', methods=['POST'])
+@login_required
+@admin_required
+def expense_approve():
+    entry_id = int(request.form.get('entry_id', 0))
+    entry = db.get_or_404(LeadActivity, entry_id)
+    if entry.status != 'Submitted':
+        flash('Only Submitted entries can be approved.', 'warning')
+    else:
+        entry.status      = 'Approved'
+        entry.reviewed_by = current_user.username
+        entry.reviewed_at = datetime.utcnow()
+        db.session.commit()
+        flash('Entry approved.', 'success')
+    return redirect(url_for('admin.expense_queue'))
+
+
+@admin_bp.route('/expenses/reject', methods=['POST'])
+@login_required
+@admin_required
+def expense_reject():
+    entry_id     = int(request.form.get('entry_id', 0))
+    review_notes = request.form.get('review_notes', '').strip()
+    entry = db.get_or_404(LeadActivity, entry_id)
+    if not review_notes:
+        flash('Review notes are required when rejecting an entry.', 'danger')
+        return redirect(url_for('admin.expense_queue'))
+    if entry.status != 'Submitted':
+        flash('Only Submitted entries can be rejected.', 'warning')
+    else:
+        entry.status       = 'Rejected'
+        entry.reviewed_by  = current_user.username
+        entry.reviewed_at  = datetime.utcnow()
+        entry.review_notes = review_notes
+        db.session.commit()
+        flash('Entry rejected.', 'success')
+    return redirect(url_for('admin.expense_queue'))
+
+
+@admin_bp.route('/expenses/reimburse', methods=['POST'])
+@login_required
+@admin_required
+def expense_reimburse():
+    entry_id = int(request.form.get('entry_id', 0))
+    entry = db.get_or_404(LeadActivity, entry_id)
+    if entry.status != 'Approved':
+        flash('Only Approved entries can be marked as Reimbursed.', 'warning')
+    else:
+        entry.status        = 'Reimbursed'
+        entry.reimbursed_at = datetime.utcnow()
+        db.session.commit()
+        flash('Entry marked as Reimbursed.', 'success')
+    return redirect(url_for('admin.expense_queue'))
+
+
+@admin_bp.route('/expenses/export')
+@login_required
+@admin_required
+def expense_export():
+    f_lead_id = request.args.get('lead_id', '').strip()
+    f_from    = request.args.get('date_from', '').strip()
+    f_to      = request.args.get('date_to', '').strip()
+
+    q = LeadActivity.query
+    if f_lead_id and f_lead_id.isdigit():
+        q = q.filter(LeadActivity.lead_id == int(f_lead_id))
+    if f_from:
+        q = q.filter(LeadActivity.activity_date >= f_from)
+    if f_to:
+        q = q.filter(LeadActivity.activity_date <= f_to)
+    entries = q.order_by(LeadActivity.activity_date.desc()).all()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        'Date', 'Rep Username', 'Lead Company', 'Category', 'Sub-category',
+        'Activity Type', 'Amount', 'Miles Driven', 'Mileage Rate',
+        'Destination', 'Purpose', 'Attendees', 'Attendee Count',
+        'Payment Method', 'Reimbursable', 'Status', 'Receipt',
+        'Submitted At', 'Reviewed By', 'Review Notes',
+    ])
+    for e in entries:
+        writer.writerow([
+            e.activity_date,
+            e.user.username if e.user else '',
+            e.lead.company_name if e.lead else '',
+            e.category.name if e.category else '',
+            e.subcategory.name if e.subcategory else '',
+            e.activity_type,
+            e.amount or '',
+            e.miles_driven or '',
+            e.mileage_rate or '',
+            e.destination,
+            e.purpose,
+            e.attendees or '',
+            e.attendee_count or '',
+            e.payment_method,
+            'Yes' if e.reimbursable else 'No',
+            e.status,
+            'Yes' if e.receipt_attached else 'No',
+            e.submitted_at or '',
+            e.reviewed_by or '',
+            e.review_notes or '',
+        ])
+
+    fname = f'expenses_{datetime.now().strftime("%Y%m%d")}.csv'
+    return Response(
+        output.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': f'attachment; filename="{fname}"'},
+    )
+
+
+@admin_bp.route('/settings/mileage-rate', methods=['POST'])
+@login_required
+@admin_required
+def update_mileage_rate():
+    rate_raw = request.form.get('irs_mileage_rate', '').strip()
+    try:
+        rate = float(rate_raw)
+        if rate <= 0 or rate > 5:
+            raise ValueError
+    except ValueError:
+        flash('Invalid mileage rate. Enter a value between 0.01 and 5.00.', 'danger')
+        return redirect(url_for('admin.expense_queue'))
+
+    row = SystemConfig.query.filter_by(config_key='irs_mileage_rate').first()
+    if row:
+        row.config_value = f'{rate:.4f}'
+        row.updated_by   = current_user.username
+    else:
+        row = SystemConfig(config_key='irs_mileage_rate',
+                           config_value=f'{rate:.4f}',
+                           updated_by=current_user.username)
+        db.session.add(row)
+    db.session.commit()
+    flash(f'IRS mileage rate updated to ${rate:.4f}/mile.', 'success')
+    return redirect(url_for('admin.expense_queue'))
+
+
+# ── Clause Templates ─────────────────────────────────────────────────────────
+
+@admin_bp.route('/clause-templates/<clause_key>', methods=['POST'])
+@login_required
+@admin_required
+def update_clause_template(clause_key: str):
+    tmpl = ClauseTemplate.query.filter_by(clause_key=clause_key, active=1).first()
+    new_text = request.form.get('clause_text', '').strip()
+    if not new_text:
+        flash('Clause text cannot be empty.', 'danger')
+        return redirect(url_for('admin.clause_templates'))
+    if tmpl:
+        # Archive current
+        tmpl.active = 0
+        db.session.flush()
+        # Create new active version
+        new_version = tmpl.version + 1
+    else:
+        new_version = 1
+    new_tmpl = ClauseTemplate(
+        clause_key=clause_key,
+        clause_text=new_text,
+        version=new_version,
+        active=1,
+        approved_by_legal=current_user.username,
+    )
+    db.session.add(new_tmpl)
+    db.session.commit()
+    flash(f'Template "{clause_key}" updated to v{new_version}.', 'success')
+    return redirect(url_for('admin.clause_templates'))

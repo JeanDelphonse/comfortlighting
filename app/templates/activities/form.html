@@ -1,0 +1,290 @@
+{% extends 'base.html' %}
+{% block title %}{{ 'Edit' if mode == 'edit' else 'Add' }} Activity – {{ lead.company_name }}{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-3">
+  <a href="{{ url_for('activities.log', lead_id=lead.id) }}" class="btn btn-sm btn-outline-secondary me-3">
+    <i class="bi bi-arrow-left"></i>
+  </a>
+  <h4 class="fw-bold mb-0">
+    {{ 'Edit' if mode == 'edit' else 'Add' }} Activity Entry
+    <span class="text-muted fw-normal fs-6 ms-2">– {{ lead.company_name }}</span>
+  </h4>
+</div>
+
+{% if entry and entry.status == 'Submitted' and not current_user.is_admin %}
+<div class="alert alert-info small py-2">
+  <i class="bi bi-info-circle me-1"></i>
+  This entry is pending approval. You can only update Notes and attach a revised receipt.
+</div>
+{% endif %}
+
+{% if entry and entry.status in ('Approved', 'Reimbursed') and current_user.is_admin %}
+<div class="alert alert-warning small py-2">
+  <i class="bi bi-exclamation-triangle me-1"></i>
+  This entry is {{ entry.status }}. An Admin Correction Note is required to save changes.
+</div>
+{% endif %}
+
+<form method="post"
+      action="{{ url_for('activities.edit', lead_id=lead.id, entry_id=entry.id) if mode == 'edit' else url_for('activities.add', lead_id=lead.id) }}"
+      enctype="multipart/form-data" novalidate>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+  {% macro err(field) %}
+    {% if errors.get(field) %}
+    <div class="invalid-feedback d-block">{{ errors[field] }}</div>
+    {% endif %}
+  {% endmacro %}
+  {% macro cls(field) %}{{ ' is-invalid' if errors.get(field) else '' }}{% endmacro %}
+  {% macro val(field, default='') %}{{ form_data.get(field, default) }}{% endmacro %}
+
+  {# Read-only for submitted (non-admin) and approved/reimbursed (non-admin) #}
+  {% set locked = (entry and entry.status in ('Approved','Reimbursed') and not current_user.is_admin)
+                  or (entry and entry.status == 'Submitted' and not current_user.is_admin) %}
+
+  <div class="row g-3">
+
+    <!-- Date / Activity Type / Outcome -->
+    <div class="col-md-3">
+      <label class="form-label fw-semibold">Date <span class="text-danger">*</span></label>
+      <input type="date" name="activity_date"
+             class="form-control{{ cls('activity_date') }}"
+             value="{{ val('activity_date') }}"
+             max="{{ now.date().isoformat() if now is defined else '' }}"
+             {{ 'readonly' if locked }} required>
+      {{ err('activity_date') }}
+    </div>
+
+    <div class="col-md-3">
+      <label class="form-label fw-semibold">Activity Type <span class="text-danger">*</span></label>
+      <select name="activity_type" class="form-select{{ cls('activity_type') }}" {{ 'disabled' if locked }}>
+        <option value="">— Select —</option>
+        {% for t in activity_types %}
+        <option value="{{ t }}" {{ 'selected' if val('activity_type') == t }}>{{ t }}</option>
+        {% endfor %}
+      </select>
+      {{ err('activity_type') }}
+    </div>
+
+    <div class="col-md-3">
+      <label class="form-label fw-semibold">Outcome <span class="text-danger">*</span></label>
+      <select name="outcome" class="form-select{{ cls('outcome') }}" {{ 'disabled' if locked }}>
+        <option value="">— Select —</option>
+        {% for o in outcome_values %}
+        <option value="{{ o }}" {{ 'selected' if val('outcome') == o }}>{{ o }}</option>
+        {% endfor %}
+      </select>
+      {{ err('outcome') }}
+    </div>
+
+    <div class="col-md-3">
+      <label class="form-label fw-semibold">Payment Method <span class="text-danger">*</span></label>
+      <select name="payment_method" id="payment_method" class="form-select{{ cls('payment_method') }}" {{ 'disabled' if locked }}>
+        <option value="">— Select —</option>
+        {% for m in payment_methods %}
+        <option value="{{ m }}" {{ 'selected' if val('payment_method') == m }}>{{ m }}</option>
+        {% endfor %}
+      </select>
+      {{ err('payment_method') }}
+    </div>
+
+    <!-- Category / Sub-category (combined optgroup) -->
+    <input type="hidden" name="category_id" id="category_id" value="{{ val('category_id') }}">
+    <div class="col-md-6">
+      <label class="form-label fw-semibold">Category <span class="text-danger">*</span></label>
+      <select name="subcategory_id" id="subcategory_id"
+              class="form-select{{ ' is-invalid' if errors.get('subcategory_id') or errors.get('category_id') else '' }}"
+              {{ 'disabled' if locked }}>
+        <option value="">— Select —</option>
+        {% for c in top_categories %}
+        <optgroup label="{{ c.name }}">
+          {% for sub in all_subcategories if sub.parent_id == c.id %}
+          <option value="{{ sub.id }}"
+                  data-category-id="{{ c.id }}"
+                  data-parent-requires-attendees="{{ 1 if c.requires_attendees else 0 }}"
+                  data-is-mileage="{{ 1 if sub.is_mileage else 0 }}"
+                  data-requires-attendees="{{ 1 if sub.requires_attendees else 0 }}"
+                  {{ 'selected' if val('subcategory_id') == sub.id|string }}>{{ sub.name }}</option>
+          {% endfor %}
+        </optgroup>
+        {% endfor %}
+      </select>
+      {{ err('subcategory_id') }}
+      {{ err('category_id') }}
+    </div>
+
+    <div class="col-md-6">
+      <label class="form-label fw-semibold">Reimbursable</label>
+      <div class="form-check mt-2">
+        <input type="checkbox" name="reimbursable" id="reimbursable"
+               class="form-check-input" value="1"
+               {{ 'checked' if val('reimbursable') == '1' }}
+               {{ 'disabled' if locked }}>
+        <label class="form-check-label" for="reimbursable">Mark as reimbursable</label>
+      </div>
+    </div>
+
+    <!-- Amount / Mileage (conditional) -->
+    <div id="field-amount" class="col-md-4">
+      <label class="form-label fw-semibold">Amount ($) <span class="text-danger">*</span></label>
+      <input type="number" name="amount" id="amount"
+             class="form-control{{ cls('amount') }}"
+             value="{{ val('amount') }}" min="0.01" step="0.01"
+             {{ 'readonly' if locked }}>
+      {{ err('amount') }}
+    </div>
+
+    <div id="field-mileage" class="col-md-4 d-none">
+      <label class="form-label fw-semibold">Miles Driven <span class="text-danger">*</span></label>
+      <input type="number" name="miles_driven" id="miles_driven"
+             class="form-control{{ cls('miles_driven') }}"
+             value="{{ val('miles_driven') }}" min="0.1" step="0.1"
+             {{ 'readonly' if locked }}>
+      {{ err('miles_driven') }}
+    </div>
+
+    <div id="field-mileage-calc" class="col-md-4 d-none">
+      <label class="form-label fw-semibold">Reimbursable Amount</label>
+      <input type="text" id="mileage_calc" class="form-control" readonly
+             placeholder="Calculated automatically">
+      <div class="form-text">IRS rate: $<span id="rate-display">{{ '%.4f'|format(mileage_rate) }}</span>/mile</div>
+      <input type="hidden" id="mileage_rate_val" value="{{ mileage_rate }}">
+    </div>
+
+    <!-- Destination / Purpose -->
+    <div class="col-md-6">
+      <label class="form-label fw-semibold">Place / Destination <span class="text-danger">*</span></label>
+      <input type="text" name="destination"
+             class="form-control{{ cls('destination') }}"
+             value="{{ val('destination') }}" maxlength="255"
+             placeholder="Client site, restaurant, hotel…"
+             {{ 'readonly' if locked }}>
+      {{ err('destination') }}
+    </div>
+
+    <div class="col-md-6">
+      <label class="form-label fw-semibold">Business Purpose <span class="text-danger">*</span></label>
+      <input type="text" name="purpose"
+             class="form-control{{ cls('purpose') }}"
+             value="{{ val('purpose') }}" maxlength="500"
+             placeholder="IRS-required business purpose"
+             {{ 'readonly' if locked }}>
+      {{ err('purpose') }}
+    </div>
+
+    <!-- Attendees (conditional) -->
+    <div id="field-attendees" class="col-md-8 d-none">
+      <label class="form-label fw-semibold">Attendees <span class="text-danger">*</span></label>
+      <input type="text" name="attendees"
+             class="form-control{{ cls('attendees') }}"
+             value="{{ val('attendees') }}" maxlength="500"
+             placeholder="Names and titles of attendees"
+             {{ 'readonly' if locked }}>
+      {{ err('attendees') }}
+    </div>
+
+    <div id="field-attendee-count" class="col-md-4 d-none">
+      <label class="form-label fw-semibold">Number of Attendees</label>
+      <input type="number" name="attendee_count" id="attendee_count"
+             class="form-control"
+             value="{{ val('attendee_count') }}" min="1" step="1"
+             {{ 'readonly' if locked }}>
+      <div id="per-person-warning" class="form-text text-warning d-none">
+        <i class="bi bi-exclamation-triangle me-1"></i>
+        Cost per person exceeds $75 — ensure pre-approval.
+      </div>
+    </div>
+
+    <!-- Receipt -->
+    <div class="col-12">
+      <div class="form-check">
+        <input type="checkbox" name="receipt_attached" id="receipt_attached"
+               class="form-check-input" value="1"
+               {{ 'checked' if val('receipt_attached') == '1' }}
+               {{ 'disabled' if locked }}>
+        <label class="form-check-label fw-semibold" for="receipt_attached">
+          Receipt Attached
+          <span class="text-muted small fw-normal">(required for amounts over $25)</span>
+        </label>
+      </div>
+    </div>
+
+    <div id="field-receipt-upload" class="col-md-6 d-none">
+      <label class="form-label fw-semibold">Upload Receipt</label>
+      <input type="file" name="receipt_file" id="receipt_file"
+             class="form-control{{ cls('receipt_file') }}"
+             accept=".jpg,.jpeg,.png,.pdf"
+             {{ 'disabled' if locked }}>
+      {{ err('receipt_file') }}
+      <div class="form-text">JPG, PNG, or PDF — max 5 MB</div>
+      {% if entry and entry.receipt_filename %}
+      <div class="mt-1 small">
+        Current:
+        <a href="{{ url_for('activities.receipt', lead_id=lead.id, entry_id=entry.id) }}" target="_blank">
+          {{ entry.receipt_filename }}
+        </a>
+        (uploading a new file replaces this)
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Next Action / Notes -->
+    <div class="col-md-6">
+      <label class="form-label fw-semibold">Next Action</label>
+      <input type="text" name="next_action"
+             class="form-control"
+             value="{{ val('next_action') }}" maxlength="500"
+             placeholder="Rep's planned next step"
+             {{ 'readonly' if locked and not (entry and entry.status == 'Submitted') }}>
+    </div>
+
+    <div class="col-12">
+      <label class="form-label fw-semibold">Notes</label>
+      <textarea name="notes" class="form-control" rows="3"
+                placeholder="Meeting notes, objections, follow-ups…"
+                {{ 'readonly' if locked and not (entry and entry.status in ('Submitted','Approved','Reimbursed')) }}>{{ val('notes') }}</textarea>
+    </div>
+
+    {% if entry and entry.status in ('Approved','Reimbursed') and current_user.is_admin %}
+    <div class="col-12">
+      <label class="form-label fw-semibold text-danger">
+        Admin Correction Note <span class="text-danger">*</span>
+      </label>
+      <input type="text" name="admin_correction_note"
+             class="form-control{{ cls('admin_correction_note') }}"
+             placeholder="Required reason for modifying an approved entry"
+             maxlength="500">
+      {{ err('admin_correction_note') }}
+    </div>
+    {% endif %}
+
+  </div><!-- /row -->
+
+  <div class="mt-4 d-flex gap-2">
+    {% if not locked %}
+    <button type="submit" class="btn btn-warning fw-semibold px-4">
+      <i class="bi bi-floppy me-1"></i>Save Draft
+    </button>
+    {% elif entry and entry.status == 'Submitted' and not current_user.is_admin %}
+    <button type="submit" class="btn btn-primary fw-semibold px-4">
+      <i class="bi bi-floppy me-1"></i>Update Notes / Receipt
+    </button>
+    {% elif entry and entry.status in ('Approved','Reimbursed') and current_user.is_admin %}
+    <button type="submit" class="btn btn-danger fw-semibold px-4">
+      <i class="bi bi-pencil me-1"></i>Save Admin Correction
+    </button>
+    {% endif %}
+    <a href="{{ url_for('activities.log', lead_id=lead.id) }}" class="btn btn-outline-secondary">Cancel</a>
+  </div>
+
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/activity_form.js') }}"></script>
+<script>
+const MILEAGE_RATE = {{ mileage_rate }};
+document.addEventListener('DOMContentLoaded', () => initActivityForm(MILEAGE_RATE));
+</script>
+{% endblock %}

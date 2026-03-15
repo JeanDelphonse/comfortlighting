@@ -77,6 +77,20 @@
           <tr><th class="table-light">ID</th><td>{{ lead.id }}</td></tr>
           <tr><th class="table-light">Created</th><td>{{ lead.created_at.strftime('%Y-%m-%d %H:%M') }}</td></tr>
           <tr><th class="table-light">Last Updated</th><td>{{ lead.updated_at.strftime('%Y-%m-%d %H:%M') }}</td></tr>
+          <tr>
+            <th class="table-light">Assigned To</th>
+            <td>
+              {% if lead.assigned_user %}
+                {% if lead.assigned_user.active %}
+                  {{ lead.assigned_user.username }}
+                {% else %}
+                  <span class="text-muted fst-italic">{{ lead.assigned_user.username }} (inactive)</span>
+                {% endif %}
+              {% else %}
+                <span class="text-muted">Unassigned</span>
+              {% endif %}
+            </td>
+          </tr>
         </table>
       </div>
     </div>
@@ -99,6 +113,625 @@
     </div>
   </div>
 </div>
+
+<!-- ── Proposal Section ──────────────────────────────────────────────────── -->
+<div class="row mt-4">
+  <div class="col-12">
+    <div class="card shadow-sm">
+      <div class="card-header fw-semibold bg-dark text-white d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-file-earmark-text me-2"></i>AI Proposal</span>
+        <button id="btn-generate" class="btn btn-primary btn-sm" onclick="generateProposal()">
+          <span id="generate-label"><i class="bi bi-stars me-1"></i>Generate Proposal</span>
+          <span id="generate-spinner" class="d-none">
+            <span class="spinner-border spinner-border-sm me-1" role="status"></span>Generating...
+          </span>
+        </button>
+      </div>
+      <div class="card-body">
+
+        {# Warning if key fields missing #}
+        {% if not lead.sq_ft and not lead.targets and not lead.roi %}
+        <div class="alert alert-warning small py-2 mb-3">
+          <i class="bi bi-exclamation-triangle me-1"></i>
+          Some lead fields are empty — proposal may be less tailored.
+        </div>
+        {% endif %}
+
+        {# Error banner (hidden initially) #}
+        <div id="proposal-error" class="alert alert-danger small py-2 mb-3 d-none"></div>
+
+        {# No proposal yet state #}
+        <div id="no-proposal" class="{{ 'd-none' if proposal else '' }}">
+          <p class="text-muted small mb-0">No proposal generated yet. Click <strong>Generate Proposal</strong> to create one.</p>
+        </div>
+
+        {# Preview panel #}
+        <div id="proposal-preview" class="{{ '' if proposal else 'd-none' }}" data-has-proposal="{{ '1' if proposal else '0' }}">
+          {% for label, key, val in [
+            ('GREETING',  'greeting',  proposal.greeting  if proposal else ''),
+            ('PROBLEM',   'problem',   proposal.problem   if proposal else ''),
+            ('SOLUTION',  'solution',  proposal.solution  if proposal else ''),
+            ('VALUE',     'value_prop',proposal.value_prop if proposal else ''),
+            ('NEXT STEP', 'next_step', proposal.next_step  if proposal else ''),
+          ] %}
+          <div class="mb-3">
+            <div class="fw-bold small text-primary mb-1">{{ label }}</div>
+            <div id="preview-{{ key }}" class="small">{{ val or '' }}</div>
+          </div>
+          {% endfor %}
+
+          <div class="d-flex flex-wrap gap-2 mt-3 align-items-center">
+            <button class="btn btn-outline-secondary btn-sm" onclick="showEditor()">
+              <i class="bi bi-pencil me-1"></i>Edit Proposal
+            </button>
+            <a href="{{ url_for('proposals.pdf', lead_id=lead.id) }}" class="btn btn-outline-danger btn-sm">
+              <i class="bi bi-file-pdf me-1"></i>Export PDF
+            </a>
+            <div class="form-check mb-0 ms-2">
+              <input class="form-check-input" type="checkbox" id="sent-checkbox"
+                     {{ 'checked' if proposal and proposal.proposal_sent }}
+                     onchange="markSent(this.checked)">
+              <label class="form-check-label small" for="sent-checkbox">Proposal sent to client</label>
+            </div>
+          </div>
+          <div class="text-muted small mt-2">
+            <span id="proposal-timestamp">
+              {% if proposal %}Generated {{ proposal.updated_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}
+            </span>
+            &nbsp;·&nbsp;
+            <a href="#" class="text-muted" onclick="confirmRegenerate(); return false;">Re-generate</a>
+            {% if proposal and proposal.edited_by %}
+            &nbsp;·&nbsp; Last edited by <em>{{ proposal.edited_by }}</em>
+            {% endif %}
+          </div>
+        </div>
+
+        {# Inline editor (hidden) #}
+        <div id="proposal-editor" class="d-none">
+          {% for label, key, val in [
+            ('GREETING',  'greeting',  proposal.greeting  if proposal else ''),
+            ('PROBLEM',   'problem',   proposal.problem   if proposal else ''),
+            ('SOLUTION',  'solution',  proposal.solution  if proposal else ''),
+            ('VALUE',     'value_prop',proposal.value_prop if proposal else ''),
+            ('NEXT STEP', 'next_step', proposal.next_step  if proposal else ''),
+          ] %}
+          <div class="mb-3">
+            <label class="form-label fw-bold small text-primary mb-1">{{ label }}</label>
+            <textarea id="edit-{{ key }}" class="form-control form-control-sm" rows="3">{{ val or '' }}</textarea>
+          </div>
+          {% endfor %}
+          <div class="d-flex gap-2">
+            <button class="btn btn-success btn-sm" onclick="saveProposal()">
+              <i class="bi bi-check-lg me-1"></i>Save
+            </button>
+            <button class="btn btn-secondary btn-sm" onclick="cancelEdit()">Cancel</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Contract Section ─────────────────────────────────────────────────── -->
+{% if current_user.role in ('admin', 'legal') %}
+<div class="row mt-4">
+  <div class="col-12">
+    <div class="card shadow-sm border-dark">
+      <div class="card-header fw-semibold text-white d-flex justify-content-between align-items-center" style="background:#1A2F4A">
+        <span><i class="bi bi-file-earmark-lock2 me-2"></i>Contract</span>
+        <div class="d-flex align-items-center gap-2">
+          {% if contract %}
+          <span class="badge bg-{{ 'success' if contract.approved else 'warning text-dark' }} small">
+            {{ 'Approved' if contract.approved else 'Draft v' ~ contract.version }}
+          </span>
+          {% endif %}
+          <button id="btn-contract-generate" class="btn btn-sm btn-light" onclick="generateContract()">
+            <span id="contract-generate-label">
+              <i class="bi bi-stars me-1"></i>{{ 'Re-generate Contract' if contract else 'Generate Contract' }}
+            </span>
+            <span id="contract-generate-spinner" class="d-none">
+              <span class="spinner-border spinner-border-sm me-1"></span>Generating Contract...
+            </span>
+          </button>
+        </div>
+      </div>
+      <div class="card-body">
+
+        <div id="contract-error" class="alert alert-danger small py-2 mb-3 d-none"></div>
+        <div id="contract-warning" class="alert alert-warning small py-2 mb-3 d-none"></div>
+
+        {% if not contract %}
+        <div id="no-contract">
+          <p class="text-muted small mb-0">No contract generated yet. Click <strong>Generate Contract</strong> to create one.</p>
+        </div>
+        {% endif %}
+
+        <!-- Preview panel -->
+        <div id="contract-preview" class="{{ 'd-none' if not contract }}" data-has-contract="{{ '1' if contract else '0' }}">
+
+          {% set contract_sections = [
+            ('1. PARTIES',                   'section_parties'),
+            ('2. RECITALS',                  'section_recitals'),
+            ('3. SCOPE OF WORK',             'section_scope'),
+            ('4. COMPENSATION & PAYMENT',    'section_compensation'),
+            ('5. PROJECT TIMELINE',          'section_timeline'),
+            ('6. WARRANTIES',                'section_warranties'),
+            ('7. PERFORMANCE GUARANTEE',     'section_performance'),
+            ('8. INDEMNIFICATION',           'section_indemnification'),
+            ('9. LIMITATION OF LIABILITY',   'section_liability'),
+            ('10. TERMINATION',              'section_termination'),
+            ('11. DISPUTE RESOLUTION',       'section_dispute'),
+            ('12. GOVERNING LAW',            'section_governing_law'),
+            ('13. NOTICES',                  'section_notices'),
+            ('14. ENTIRE AGREEMENT',         'section_entire_agreement'),
+            ('15. SIGNATURE BLOCK',          'section_signatures'),
+          ] %}
+
+          {% for label, key in contract_sections %}
+          <div class="mb-3">
+            <div class="fw-bold small mb-1" style="color:#1A2F4A">{{ label }}</div>
+            <div id="cpreview-{{ key }}" class="small border-start border-2 ps-2" style="border-color:#1A2F4A!important;white-space:pre-wrap">{{ (contract|attr(key)) if contract else '' }}</div>
+          </div>
+          {% endfor %}
+
+          <hr>
+          <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+            <button class="btn btn-outline-secondary btn-sm" onclick="showContractEditor()">
+              <i class="bi bi-pencil me-1"></i>Edit Contract
+            </button>
+            <a id="btn-pdf" href="{{ url_for('contracts.pdf', lead_id=lead.id) }}"
+               class="btn btn-sm {{ 'btn-outline-danger' if contract and contract.approved else 'btn-outline-secondary disabled' }}"
+               title="{{ '' if contract and contract.approved else 'Legal approval required before export.' }}">
+              <i class="bi bi-file-pdf me-1"></i>Export Contract PDF
+            </a>
+          </div>
+
+          <div class="d-flex flex-wrap gap-3 align-items-center">
+            <div class="form-check mb-0">
+              <input class="form-check-input" type="checkbox" id="contract-approved-cb"
+                     {{ 'checked' if contract and contract.approved }}
+                     onchange="approveContract(this.checked)">
+              <label class="form-check-label small fw-semibold" for="contract-approved-cb">
+                Approved for transmission by legal team
+              </label>
+            </div>
+            <div class="form-check mb-0">
+              <input class="form-check-input" type="checkbox" id="contract-sent-cb"
+                     {{ 'checked' if contract and contract.contract_sent }}
+                     {{ 'disabled' if contract and contract.contract_sent and not current_user.is_admin }}
+                     onchange="markContractSent(this.checked)">
+              <label class="form-check-label small" for="contract-sent-cb">
+                Contract sent to client by legal team
+              </label>
+            </div>
+          </div>
+
+          <div class="text-muted small mt-2">
+            <span id="contract-timestamp">
+              {% if contract %}v{{ contract.version }} &mdash; Last updated {{ contract.updated_at.strftime('%Y-%m-%d %H:%M') }}
+              {% if contract.edited_by %} by <em>{{ contract.edited_by }}</em>{% endif %}
+              {% if contract.approved_by %} &mdash; Approved by <em>{{ contract.approved_by }}</em>{% endif %}
+              {% endif %}
+            </span>
+          </div>
+        </div>
+
+        <!-- Inline editor (hidden) -->
+        <div id="contract-editor" class="d-none">
+          {% for label, key in contract_sections %}
+          <div class="mb-3">
+            <label class="form-label fw-bold small mb-1" style="color:#1A2F4A">{{ label }}</label>
+            <textarea id="cedit-{{ key }}" class="form-control form-control-sm" rows="4">{{ (contract|attr(key)) if contract else '' }}</textarea>
+          </div>
+          {% endfor %}
+          <div class="d-flex gap-2">
+            <button class="btn btn-success btn-sm" onclick="saveContract()">
+              <i class="bi bi-check-lg me-1"></i>Save Contract
+            </button>
+            <button class="btn btn-secondary btn-sm" onclick="cancelContractEdit()">Cancel</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+{% elif contract and contract.contract_sent %}
+<!-- Sales role: read-only status -->
+<div class="row mt-4">
+  <div class="col-12">
+    <div class="alert alert-success small py-2 mb-0">
+      <i class="bi bi-check-circle me-1"></i>Contract sent to client.
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Sales Activity & Expenses ─────────────────────────────────────────── -->
+{% if current_user.is_admin or lead.assigned_user_id == current_user.id %}
+<div class="row mt-4">
+  <div class="col-12">
+    <div class="card shadow-sm">
+      <div class="card-header bg-dark text-white fw-semibold d-flex justify-content-between align-items-center">
+        <span>
+          <i class="bi bi-clipboard2-check me-2"></i>Sales Activity &amp; Expenses
+          {% if activity_stats and activity_stats.pending_count > 0 %}
+          <span class="badge bg-warning text-dark ms-1">{{ activity_stats.pending_count }} pending</span>
+          {% endif %}
+        </span>
+        <a href="{{ url_for('activities.add', lead_id=lead.id) }}" class="btn btn-sm btn-warning fw-semibold">
+          <i class="bi bi-plus-lg me-1"></i>Add Entry
+        </a>
+      </div>
+      <div class="card-body">
+        {% if activity_stats %}
+        <div class="row g-2 text-center mb-3">
+          <div class="col-6 col-sm-3 border-end">
+            <div class="fw-bold fs-5">{{ activity_stats.total_entries }}</div>
+            <div class="text-muted small">Total Entries</div>
+          </div>
+          <div class="col-6 col-sm-3 border-end">
+            <div class="fw-bold fs-5">${{ '{:,.2f}'.format(activity_stats.total_spend) }}</div>
+            <div class="text-muted small">Total Spend</div>
+          </div>
+          <div class="col-6 col-sm-3 border-end">
+            <div class="fw-bold fs-5">{{ activity_stats.pending_count }}</div>
+            <div class="text-muted small">Pending Approval</div>
+          </div>
+          <div class="col-6 col-sm-3">
+            <div class="fw-bold fs-5">${{ '{:,.2f}'.format(activity_stats.reimbursable_amt) }}</div>
+            <div class="text-muted small">Reimbursable</div>
+          </div>
+        </div>
+        {% endif %}
+
+        {% if recent_activities %}
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle small mb-2">
+            <thead class="table-secondary">
+              <tr>
+                <th>Date</th><th>Category</th><th>Activity</th>
+                <th>Destination</th><th class="text-end">Amount</th>
+                <th>Outcome</th><th>Status</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for e in recent_activities %}
+            <tr>
+              <td>{{ e.activity_date.strftime('%Y-%m-%d') }}</td>
+              <td>{{ e.category.name if e.category else '—' }}</td>
+              <td>{{ e.activity_type }}</td>
+              <td>{{ e.destination[:40] }}{{ '…' if e.destination|length > 40 else '' }}</td>
+              <td class="text-end">{{ ('$' ~ '{:,.2f}'.format(e.amount|float)) if e.amount is not none else '—' }}</td>
+              <td>
+                <span class="badge bg-{{ 'success' if e.outcome == 'Positive' else ('danger' if e.outcome == 'Negative' else ('secondary' if e.outcome == 'No Response' else 'warning text-dark')) }}">
+                  {{ e.outcome }}
+                </span>
+              </td>
+              <td>
+                <span class="badge bg-{{ {'Draft':'secondary','Submitted':'primary','Approved':'success','Rejected':'danger','Reimbursed':'info'}.get(e.status,'secondary') }}">
+                  {{ e.status }}
+                </span>
+                {% if e.receipt_attached and not e.receipt_filename %}
+                <i class="bi bi-exclamation-triangle text-warning ms-1" title="Receipt required"></i>
+                {% endif %}
+              </td>
+              <td>
+                <a href="{{ url_for('activities.view_entry', lead_id=lead.id, entry_id=e.id) }}"
+                   class="btn btn-sm btn-outline-primary py-0 px-2"><i class="bi bi-eye"></i></a>
+              </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <a href="{{ url_for('activities.log', lead_id=lead.id) }}" class="btn btn-sm btn-outline-dark">
+          <i class="bi bi-list-ul me-1"></i>View All ({{ activity_stats.total_entries }})
+        </a>
+        {% else %}
+        <p class="text-muted small mb-0">No activity entries yet.
+          <a href="{{ url_for('activities.add', lead_id=lead.id) }}">Add the first entry.</a>
+        </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% block scripts %}
+<script>
+const LEAD_ID = {{ lead.id }};
+const CSRF_TOKEN = "{{ csrf_token() }}";
+const URL_GENERATE  = "{{ url_for('proposals.generate') }}";
+const URL_SAVE      = "{{ url_for('proposals.save') }}";
+const URL_MARK_SENT = "{{ url_for('proposals.mark_sent') }}";
+
+async function postJSON(url, body) {
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
+    body: JSON.stringify(body),
+  });
+  return resp;
+}
+
+function showError(msg) {
+  const el = document.getElementById('proposal-error');
+  el.textContent = msg;
+  el.classList.remove('d-none');
+  setTimeout(() => el.classList.add('d-none'), 8000);
+}
+
+async function _doGenerate() {
+  const btn = document.getElementById('btn-generate');
+  btn.disabled = true;
+  document.getElementById('generate-label').classList.add('d-none');
+  document.getElementById('generate-spinner').classList.remove('d-none');
+  try {
+    const resp = await postJSON(URL_GENERATE, { lead_id: LEAD_ID });
+    let data;
+    try { data = await resp.json(); } catch(_) { data = {}; }
+    if (resp.ok) {
+      renderProposal(data);
+    } else {
+      showError(data.error || 'Generation failed. Check logs for details.');
+    }
+  } catch(e) {
+    showError('Network error — could not reach the server. Please try again.');
+  } finally {
+    btn.disabled = false;
+    document.getElementById('generate-label').classList.remove('d-none');
+    document.getElementById('generate-spinner').classList.add('d-none');
+  }
+}
+
+function generateProposal() {
+  const preview = document.getElementById('proposal-preview');
+  if (preview.dataset.hasProposal === '1') {
+    if (!confirm('This will replace the current draft. Continue?')) return;
+  }
+  _doGenerate();
+}
+
+function confirmRegenerate() {
+  if (confirm('This will replace the current draft. Continue?')) {
+    _doGenerate();
+  }
+}
+
+const SECTION_KEYS = ['greeting', 'problem', 'solution', 'value_prop', 'next_step'];
+
+function renderProposal(p) {
+  for (const key of SECTION_KEYS) {
+    const prev = document.getElementById('preview-' + key);
+    if (prev) prev.textContent = p[key] || '';
+    const edit = document.getElementById('edit-' + key);
+    if (edit) edit.value = p[key] || '';
+  }
+  const sentCb = document.getElementById('sent-checkbox');
+  if (sentCb) sentCb.checked = p.proposal_sent === 1;
+  const ts = document.getElementById('proposal-timestamp');
+  if (ts && p.updated_at) {
+    const d = new Date(p.updated_at);
+    ts.textContent = 'Generated ' + d.toLocaleString();
+  }
+  document.getElementById('no-proposal').classList.add('d-none');
+  const preview = document.getElementById('proposal-preview');
+  preview.classList.remove('d-none');
+  preview.dataset.hasProposal = '1';
+  document.getElementById('proposal-editor').classList.add('d-none');
+}
+
+function showEditor() {
+  document.getElementById('proposal-preview').classList.add('d-none');
+  document.getElementById('proposal-editor').classList.remove('d-none');
+}
+
+function cancelEdit() {
+  document.getElementById('proposal-editor').classList.add('d-none');
+  document.getElementById('proposal-preview').classList.remove('d-none');
+}
+
+async function saveProposal() {
+  const body = { lead_id: LEAD_ID };
+  for (const key of SECTION_KEYS) {
+    const el = document.getElementById('edit-' + key);
+    body[key] = el ? el.value : '';
+  }
+  try {
+    const resp = await postJSON(URL_SAVE, body);
+    const data = await resp.json();
+    if (resp.ok) renderProposal(data);
+    else showError(data.error || 'Save failed.');
+  } catch(e) {
+    showError('Save failed. Please try again.');
+  }
+}
+
+async function markSent(checked) {
+  try {
+    const resp = await postJSON(URL_MARK_SENT, { lead_id: LEAD_ID, sent: checked });
+    if (!resp.ok) {
+      const data = await resp.json();
+      showError(data.error || 'Update failed.');
+      document.getElementById('sent-checkbox').checked = !checked;
+    }
+  } catch(e) {
+    showError('Update failed.');
+    document.getElementById('sent-checkbox').checked = !checked;
+  }
+}
+
+// ── Contract JS ────────────────────────────────────────────────────────────
+const CONTRACT_LEAD_ID = {{ lead.id }};
+let contractId = {{ contract.id if contract else 'null' }};
+const URL_CONTRACT_GENERATE = "{{ url_for('contracts.generate') }}";
+const URL_CONTRACT_PDF      = "{{ url_for('contracts.pdf', lead_id=lead.id) }}";
+const CONTRACTS_BASE        = "{{ url_for('contracts.generate') }}".replace('/generate', '');
+
+function urlContractSave(id)     { return CONTRACTS_BASE + '/' + id + '/save'; }
+function urlContractApprove(id)  { return CONTRACTS_BASE + '/' + id + '/approve'; }
+function urlContractMarkSent(id) { return CONTRACTS_BASE + '/' + id + '/mark_sent'; }
+
+const CONTRACT_SECTION_KEYS = [
+  'section_parties','section_recitals','section_scope','section_compensation',
+  'section_timeline','section_warranties','section_performance','section_indemnification',
+  'section_liability','section_termination','section_dispute','section_governing_law',
+  'section_notices','section_entire_agreement','section_signatures'
+];
+
+function showContractError(msg) {
+  const el = document.getElementById('contract-error');
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.remove('d-none');
+  setTimeout(() => el.classList.add('d-none'), 8000);
+}
+
+function renderContract(c) {
+  contractId = c.id;
+  for (const key of CONTRACT_SECTION_KEYS) {
+    const prev = document.getElementById('cpreview-' + key);
+    if (prev) prev.textContent = c[key] || '';
+    const edit = document.getElementById('cedit-' + key);
+    if (edit) edit.value = c[key] || '';
+  }
+  const noC = document.getElementById('no-contract');
+  if (noC) noC.classList.add('d-none');
+  const preview = document.getElementById('contract-preview');
+  if (preview) { preview.classList.remove('d-none'); preview.dataset.hasContract = '1'; }
+  document.getElementById('contract-editor').classList.add('d-none');
+
+  const approvedCb = document.getElementById('contract-approved-cb');
+  if (approvedCb) approvedCb.checked = c.approved === 1;
+  const sentCb = document.getElementById('contract-sent-cb');
+  if (sentCb) sentCb.checked = c.contract_sent === 1;
+
+  const ts = document.getElementById('contract-timestamp');
+  if (ts && c.updated_at) {
+    ts.textContent = 'v' + c.version + ' — Last updated ' + new Date(c.updated_at).toLocaleString();
+  }
+
+  const btnLabel = document.getElementById('contract-generate-label');
+  if (btnLabel) btnLabel.innerHTML = '<i class="bi bi-stars me-1"></i>Re-generate Contract';
+
+  // Toggle PDF button active state
+  const pdfBtn = document.getElementById('btn-pdf');
+  if (pdfBtn) {
+    if (c.approved) {
+      pdfBtn.classList.remove('disabled', 'btn-outline-secondary');
+      pdfBtn.classList.add('btn-outline-danger');
+      pdfBtn.title = '';
+    } else {
+      pdfBtn.classList.add('disabled');
+      pdfBtn.classList.remove('btn-outline-danger');
+      pdfBtn.classList.add('btn-outline-secondary');
+      pdfBtn.title = 'Legal approval required before export.';
+    }
+  }
+}
+
+async function generateContract() {
+  const preview = document.getElementById('contract-preview');
+  if (preview && preview.dataset.hasContract === '1') {
+    if (!confirm('This will replace the current contract draft. Continue?')) return;
+  }
+  const btn = document.getElementById('btn-contract-generate');
+  if (btn) btn.disabled = true;
+  document.getElementById('contract-generate-label').classList.add('d-none');
+  document.getElementById('contract-generate-spinner').classList.remove('d-none');
+  try {
+    const resp = await postJSON(URL_CONTRACT_GENERATE, { lead_id: CONTRACT_LEAD_ID });
+    let data;
+    try { data = await resp.json(); } catch(_) { data = {}; }
+    if (resp.ok) {
+      renderContract(data);
+    } else {
+      showContractError(data.error || 'Contract generation failed.');
+    }
+  } catch(e) {
+    showContractError('Network error — could not reach the server. Please try again.');
+  } finally {
+    if (btn) btn.disabled = false;
+    document.getElementById('contract-generate-label').classList.remove('d-none');
+    document.getElementById('contract-generate-spinner').classList.add('d-none');
+  }
+}
+
+function showContractEditor() {
+  document.getElementById('contract-preview').classList.add('d-none');
+  document.getElementById('contract-editor').classList.remove('d-none');
+}
+
+function cancelContractEdit() {
+  document.getElementById('contract-editor').classList.add('d-none');
+  document.getElementById('contract-preview').classList.remove('d-none');
+}
+
+async function saveContract() {
+  if (!contractId) { showContractError('No contract to save.'); return; }
+  const body = { };
+  for (const key of CONTRACT_SECTION_KEYS) {
+    const el = document.getElementById('cedit-' + key);
+    body[key] = el ? el.value : '';
+  }
+  try {
+    const resp = await postJSON(urlContractSave(contractId), body);
+    let data; try { data = await resp.json(); } catch(_) { data = {}; }
+    if (resp.ok) renderContract(data);
+    else showContractError(data.error || 'Save failed.');
+  } catch(e) {
+    showContractError('Network error. Please try again.');
+  }
+}
+
+async function approveContract(checked) {
+  if (!contractId) { showContractError('Generate a contract first.'); return; }
+  try {
+    const resp = await postJSON(urlContractApprove(contractId), { approved: checked });
+    let data; try { data = await resp.json(); } catch(_) { data = {}; }
+    if (resp.ok) {
+      const pdfBtn = document.getElementById('btn-pdf');
+      if (pdfBtn) {
+        if (checked) {
+          pdfBtn.classList.remove('disabled', 'btn-outline-secondary');
+          pdfBtn.classList.add('btn-outline-danger');
+          pdfBtn.title = '';
+        } else {
+          pdfBtn.classList.add('disabled');
+          pdfBtn.classList.remove('btn-outline-danger');
+          pdfBtn.classList.add('btn-outline-secondary');
+          pdfBtn.title = 'Legal approval required before export.';
+        }
+      }
+    } else {
+      showContractError(data.error || 'Approval update failed.');
+      document.getElementById('contract-approved-cb').checked = !checked;
+    }
+  } catch(e) {
+    showContractError('Network error.');
+    document.getElementById('contract-approved-cb').checked = !checked;
+  }
+}
+
+async function markContractSent(checked) {
+  if (!contractId) { showContractError('Generate a contract first.'); return; }
+  try {
+    const resp = await postJSON(urlContractMarkSent(contractId), { sent: checked });
+    let data; try { data = await resp.json(); } catch(_) { data = {}; }
+    if (!resp.ok) {
+      showContractError(data.error || 'Update failed.');
+      document.getElementById('contract-sent-cb').checked = !checked;
+    }
+  } catch(e) {
+    showContractError('Network error.');
+    document.getElementById('contract-sent-cb').checked = !checked;
+  }
+}
+</script>
+{% endblock %}
 
 {% if current_user.is_admin %}
 <!-- Delete confirmation modal -->

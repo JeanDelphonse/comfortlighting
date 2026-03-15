@@ -1,0 +1,99 @@
+{% extends 'base.html' %}
+{% block title %}Clause Templates{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h4 class="fw-bold mb-0"><i class="bi bi-file-earmark-lock2 me-2"></i>Contract Clause Templates</h4>
+  <a href="{{ url_for('admin.users') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i>Back to Admin
+  </a>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+  <div class="alert alert-{{ category }} alert-dismissible fade show small py-2" role="alert">
+    {{ message }}
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+  </div>
+  {% endfor %}
+{% endwith %}
+
+<p class="text-muted small mb-4">
+  Edit the legal clause templates used for AI contract generation. Each save creates a new version and archives the previous one.
+  Only the active version is used during generation.
+</p>
+
+{% set active_templates = templates | selectattr('active', 'equalto', 1) | list %}
+{% set archived_templates = templates | selectattr('active', 'equalto', 0) | list %}
+
+<div class="accordion" id="clauseAccordion">
+{% for tmpl in active_templates %}
+<div class="accordion-item mb-2 border shadow-sm">
+  <h2 class="accordion-header" id="heading-{{ loop.index }}">
+    <button class="accordion-button collapsed fw-semibold small" type="button"
+            data-bs-toggle="collapse" data-bs-target="#collapse-{{ loop.index }}"
+            style="background:#f8f9fa">
+      <span style="color:#1A2F4A;min-width:280px">{{ tmpl.clause_key }}</span>
+      <span class="badge bg-success ms-2">v{{ tmpl.version }} — Active</span>
+      {% if tmpl.approved_by_legal %}
+      <span class="badge bg-secondary ms-1 fw-normal">Approved by {{ tmpl.approved_by_legal }}</span>
+      {% endif %}
+    </button>
+  </h2>
+  <div id="collapse-{{ loop.index }}" class="accordion-collapse collapse"
+       data-bs-parent="#clauseAccordion">
+    <div class="accordion-body">
+      <form method="post" action="{{ url_for('admin.update_clause_template', clause_key=tmpl.clause_key) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="mb-3">
+          <label class="form-label small fw-semibold text-muted">
+            Clause Text
+            <span class="text-muted fw-normal">— use <code>&#123;&#123;PLACEHOLDER&#125;&#125;</code> for client data fields</span>
+          </label>
+          <textarea name="clause_text" class="form-control form-control-sm font-monospace"
+                    rows="8" required>{{ tmpl.clause_text }}</textarea>
+        </div>
+        <div class="d-flex gap-2 align-items-center">
+          <button type="submit" class="btn btn-sm btn-warning fw-semibold">
+            <i class="bi bi-save me-1"></i>Save New Version
+          </button>
+          <span class="text-muted small">Current: v{{ tmpl.version }} &mdash; Last updated {{ tmpl.created_at.strftime('%Y-%m-%d') }}</span>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
+</div>
+
+{% if not active_templates %}
+<div class="alert alert-warning small">
+  No active clause templates found. Run <code>sql/seed_clause_templates.sql</code> to populate them.
+</div>
+{% endif %}
+
+{% if archived_templates %}
+<div class="mt-4">
+  <h6 class="text-muted fw-semibold"><i class="bi bi-archive me-1"></i>Archived Versions ({{ archived_templates|length }})</h6>
+  <div class="table-responsive">
+    <table class="table table-sm table-bordered small text-muted">
+      <thead class="table-light">
+        <tr><th>Clause Key</th><th>Version</th><th>Approved By</th><th>Created</th></tr>
+      </thead>
+      <tbody>
+      {% for tmpl in archived_templates | sort(attribute='created_at', reverse=true) %}
+      <tr>
+        <td>{{ tmpl.clause_key }}</td>
+        <td>v{{ tmpl.version }}</td>
+        <td>{{ tmpl.approved_by_legal or '—' }}</td>
+        <td>{{ tmpl.created_at.strftime('%Y-%m-%d') }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

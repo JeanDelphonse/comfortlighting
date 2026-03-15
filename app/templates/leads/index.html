@@ -2,6 +2,7 @@
 {% block title %}Dashboard{% endblock %}
 
 {% block content %}
+{% set progress_values_with_wip = progress_values + ['In Progress'] %}
 
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h4 class="fw-bold mb-0"><i class="bi bi-speedometer2 me-2"></i>Lead Dashboard</h4>
@@ -42,6 +43,16 @@
       </select>
     </div>
     <div class="col-md-2">
+      <label class="form-label small mb-1">Assigned To</label>
+      <select name="assigned_user" class="form-select form-select-sm">
+        <option value="">All Users</option>
+        <option value="unassigned" {{ 'selected' if f_assigned == 'unassigned' }}>— Unassigned —</option>
+        {% for u in active_users %}
+        <option value="{{ u.id }}" {{ 'selected' if f_assigned == u.id|string }}>{{ u.username }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-2">
       <label class="form-label small mb-1">Expected From</label>
       <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}">
     </div>
@@ -57,6 +68,55 @@
     </div>
   </div>
 </form>
+
+<!-- WIP Section -->
+<div class="card mb-4 border-2 border-primary" id="wip-section">
+  <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center py-2">
+    <h6 class="mb-0"><i class="bi bi-kanban me-2"></i>Work In Progress <span class="badge bg-light text-dark ms-2" id="wip-count">{{ wip_count }}</span></h6>
+  </div>
+  <div class="card-body p-3" id="wip-container" data-wip-count="{{ wip_count }}">
+    <div class="row g-3" id="wip-grid" {% if not wip_leads %}style="display:none"{% endif %}>
+    {% for lead in wip_leads %}
+      <div class="col-md-4 col-lg-3" data-lead-id="{{ lead.id }}" data-wip="true">
+        <div class="card h-100 shadow-sm wip-card" draggable="true">
+          <div class="card-body p-3">
+            <div class="d-flex justify-content-between align-items-start mb-2">
+              <div class="drag-handle text-muted" title="Drag to Lead List to remove from WIP">
+                <i class="bi bi-grip-vertical"></i>
+              </div>
+              <button type="button" class="btn btn-sm btn-close wip-remove" title="Remove from WIP" data-lead-id="{{ lead.id }}"></button>
+            </div>
+            <h6 class="card-title mb-2">
+              <a href="{{ url_for('leads.view', lead_id=lead.id) }}" class="text-decoration-none">{{ lead.company_name }}</a>
+            </h6>
+            <div class="mb-2">
+              <span class="badge bg-{{ action_badge_class.get(lead.action, 'secondary') }}">{{ lead.action }}</span>
+            </div>
+            <div class="small text-muted">
+              {% if lead.progress %}
+              <div><span class="status-dot {{ 'bg-success' if lead.progress == 'In Progress' else 'bg-secondary' }}"></span> {{ lead.progress }}</div>
+              {% endif %}
+              <div>
+                {% if lead.assigned_user %}
+                  {{ lead.assigned_user.username }}
+                {% else %}
+                  <span class="fst-italic">Unassigned</span>
+                {% endif %}
+              </div>
+              <div>{{ '$' ~ '{:,.0f}'.format(lead.potential|float) if lead.potential is not none else '—' }}</div>
+              <div class="text-info">
+                {% if lead.wip_since %}
+                  In WIP for {{ ((now - lead.wip_since).days if now else 0) }} days
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+    </div>
+  </div>
+</div>
 
 <!-- Results info -->
 <p class="text-muted small mb-2">
@@ -90,15 +150,18 @@
       {{ th('potential', 'Potential') }}
       {{ th('expected', 'Expected') }}
       {{ th('updated_at', 'Updated') }}
+      {{ th('assigned_user', 'Assigned To') }}
       <th class="text-center">Actions</th>
     </tr>
   </thead>
-  <tbody>
+  <tbody id="lead-list-body" data-wip="false">
   {% if not leads %}
-    <tr><td colspan="10" class="text-center text-muted py-4">No leads found.</td></tr>
+    <tr><td colspan="11" class="text-center text-muted py-4" id="lead-list-empty">
+      All leads are currently in WIP
+    </td></tr>
   {% else %}
     {% for lead in leads %}
-    <tr>
+    <tr data-lead-id="{{ lead.id }}" data-wip="false" draggable="true">
       <td class="text-muted">{{ lead.id }}</td>
       <td>
         <a href="{{ url_for('leads.view', lead_id=lead.id) }}" class="fw-semibold text-decoration-none">
@@ -116,6 +179,17 @@
       <td>{{ ('$' ~ '{:,.0f}'.format(lead.potential|float)) if lead.potential is not none else '–' }}</td>
       <td>{{ lead.expected.strftime('%Y-%m-%d') if lead.expected else '–' }}</td>
       <td class="text-muted">{{ lead.updated_at.strftime('%b %-d, %Y') }}</td>
+      <td>
+        {% if lead.assigned_user %}
+          {% if lead.assigned_user.active %}
+            {{ lead.assigned_user.username }}
+          {% else %}
+            <span class="text-muted fst-italic">{{ lead.assigned_user.username }} (inactive)</span>
+          {% endif %}
+        {% else %}
+          <span class="text-muted">—</span>
+        {% endif %}
+      </td>
       <td class="text-center">
         <a href="{{ url_for('leads.view', lead_id=lead.id) }}"
            class="btn btn-sm btn-outline-primary py-0 px-2" title="View">

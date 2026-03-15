@@ -1,0 +1,214 @@
+{% extends 'base.html' %}
+{% block title %}Expense Review Queue{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="fw-bold mb-0"><i class="bi bi-receipt me-2"></i>Expense Review Queue</h4>
+  <a href="{{ url_for('admin.expense_export', date_from=f_from, date_to=f_to) }}"
+     class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-download me-1"></i>Export CSV
+  </a>
+</div>
+
+<!-- IRS Mileage Rate -->
+<div class="card mb-3 border-0 bg-light">
+  <div class="card-body py-2 px-3 d-flex align-items-center gap-3 flex-wrap">
+    <span class="fw-semibold small">IRS Mileage Rate:</span>
+    <span class="badge bg-dark fs-6">${{ '%.4f'|format(mileage_rate) }}/mile</span>
+    <form method="post" action="{{ url_for('admin.update_mileage_rate') }}" class="d-flex gap-2 align-items-center">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="number" name="irs_mileage_rate" class="form-control form-control-sm" style="width:100px"
+             value="{{ '%.4f'|format(mileage_rate) }}" step="0.0001" min="0.01" max="5">
+      <button type="submit" class="btn btn-sm btn-primary">Update Rate</button>
+    </form>
+  </div>
+</div>
+
+<!-- Filters -->
+<form method="get" class="card card-body mb-3 p-3 bg-light border-0">
+  <div class="row g-2 align-items-end">
+    <div class="col-md-2">
+      <label class="form-label small mb-1">Status</label>
+      <select name="status" class="form-select form-select-sm">
+        <option value="">All Statuses</option>
+        {% for s in ['Submitted','Approved','Rejected','Reimbursed','Draft'] %}
+        <option value="{{ s }}" {{ 'selected' if f_status == s }}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-2">
+      <label class="form-label small mb-1">Rep</label>
+      <select name="user_id" class="form-select form-select-sm">
+        <option value="">All Reps</option>
+        {% for u in all_users %}
+        <option value="{{ u.id }}" {{ 'selected' if f_user_id == u.id|string }}>{{ u.username }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-2">
+      <label class="form-label small mb-1">From</label>
+      <input type="date" name="date_from" class="form-control form-control-sm" value="{{ f_from }}">
+    </div>
+    <div class="col-md-2">
+      <label class="form-label small mb-1">To</label>
+      <input type="date" name="date_to" class="form-control form-control-sm" value="{{ f_to }}">
+    </div>
+    <div class="col-md-3">
+      <label class="form-label small mb-1">Lead ID</label>
+      <input type="number" name="lead_id" class="form-control form-control-sm"
+             value="{{ f_lead_id }}" placeholder="e.g. 12">
+    </div>
+    <div class="col-md-1 d-flex gap-1">
+      <button type="submit" class="btn btn-primary btn-sm">
+        <i class="bi bi-search"></i>
+      </button>
+      <a href="{{ url_for('admin.expense_queue') }}" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-x"></i>
+      </a>
+    </div>
+  </div>
+</form>
+
+<p class="text-muted small mb-2">
+  Showing {{ entries|length }} of {{ pagination.total }} entries
+</p>
+
+<div class="table-responsive">
+<table class="table table-hover table-bordered align-middle small">
+  <thead class="table-dark">
+    <tr>
+      <th>Date</th><th>Rep</th><th>Lead</th>
+      <th>Category</th><th>Activity</th><th>Destination</th>
+      <th class="text-end">Amount</th><th>Status</th><th>Receipt</th>
+      <th class="text-center">Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% if not entries %}
+  <tr><td colspan="10" class="text-center text-muted py-4">No entries match.</td></tr>
+  {% else %}
+  {% for e in entries %}
+  <tr>
+    <td>{{ e.activity_date.strftime('%Y-%m-%d') }}</td>
+    <td>{{ e.user.username if e.user else '—' }}</td>
+    <td>
+      <a href="{{ url_for('leads.view', lead_id=e.lead_id) }}">{{ e.lead.company_name if e.lead else e.lead_id }}</a>
+    </td>
+    <td>
+      {{ e.category.name if e.category else '—' }}
+      {% if e.subcategory %}<br><span class="text-muted">{{ e.subcategory.name }}</span>{% endif %}
+    </td>
+    <td>{{ e.activity_type }}</td>
+    <td>{{ e.destination[:40] }}{{ '…' if e.destination|length > 40 else '' }}</td>
+    <td class="text-end">
+      {{ ('$' ~ '{:,.2f}'.format(e.amount|float)) if e.amount is not none else '—' }}
+      {% if e.miles_driven %}
+      <br><span class="text-muted">{{ e.miles_driven }} mi</span>
+      {% endif %}
+    </td>
+    <td>
+      <span class="badge bg-{{ {'Draft':'secondary','Submitted':'primary','Approved':'success','Rejected':'danger','Reimbursed':'info'}.get(e.status,'secondary') }}">
+        {{ e.status }}
+      </span>
+    </td>
+    <td class="text-center">
+      {% if e.receipt_filename %}
+      <a href="{{ url_for('activities.receipt', lead_id=e.lead_id, entry_id=e.id) }}" target="_blank">
+        <i class="bi bi-file-earmark text-success" title="View receipt"></i>
+      </a>
+      {% elif e.receipt_attached %}
+      <i class="bi bi-exclamation-triangle text-warning" title="Marked attached — file missing"></i>
+      {% else %}
+      <span class="text-muted">—</span>
+      {% endif %}
+    </td>
+    <td class="text-center">
+      <a href="{{ url_for('activities.view_entry', lead_id=e.lead_id, entry_id=e.id) }}"
+         class="btn btn-sm btn-outline-primary py-0 px-2" title="View">
+        <i class="bi bi-eye"></i>
+      </a>
+      {% if e.status == 'Submitted' %}
+      <!-- Approve -->
+      <form method="post" action="{{ url_for('admin.expense_approve') }}" class="d-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="entry_id" value="{{ e.id }}">
+        <button type="submit" class="btn btn-sm btn-outline-success py-0 px-2" title="Approve">
+          <i class="bi bi-check-lg"></i>
+        </button>
+      </form>
+      <!-- Reject -->
+      <button type="button" class="btn btn-sm btn-outline-danger py-0 px-2" title="Reject"
+              data-bs-toggle="modal" data-bs-target="#rejectModal{{ e.id }}">
+        <i class="bi bi-x-lg"></i>
+      </button>
+      {% endif %}
+      {% if e.status == 'Approved' and e.reimbursable %}
+      <form method="post" action="{{ url_for('admin.expense_reimburse') }}" class="d-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="entry_id" value="{{ e.id }}">
+        <button type="submit" class="btn btn-sm btn-outline-info py-0 px-2" title="Mark Reimbursed">
+          <i class="bi bi-cash"></i>
+        </button>
+      </form>
+      {% endif %}
+    </td>
+  </tr>
+
+  <!-- Reject modal -->
+  {% if e.status == 'Submitted' %}
+  <div class="modal fade" id="rejectModal{{ e.id }}" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <form method="post" action="{{ url_for('admin.expense_reject') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="entry_id" value="{{ e.id }}">
+          <div class="modal-header bg-danger text-white">
+            <h5 class="modal-title">Reject Entry #{{ e.id }}</h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <label class="form-label fw-semibold">Review Notes <span class="text-danger">*</span></label>
+            <textarea name="review_notes" class="form-control" rows="3" required
+                      placeholder="Explain why this entry is being rejected…"></textarea>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="submit" class="btn btn-danger">Reject Entry</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% endfor %}
+  {% endif %}
+  </tbody>
+</table>
+</div>
+
+{% if pagination.pages > 1 %}
+<nav>
+  <ul class="pagination pagination-sm justify-content-center">
+    <li class="page-item {{ 'disabled' if not pagination.has_prev }}">
+      <a class="page-link" href="{{ url_for('admin.expense_queue', page=pagination.prev_num,
+         status=f_status, user_id=f_user_id, date_from=f_from, date_to=f_to) }}">Previous</a>
+    </li>
+    {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=3, right_current=3) %}
+      {% if p %}
+      <li class="page-item {{ 'active' if p == pagination.page }}">
+        <a class="page-link" href="{{ url_for('admin.expense_queue', page=p,
+           status=f_status, user_id=f_user_id, date_from=f_from, date_to=f_to) }}">{{ p }}</a>
+      </li>
+      {% else %}
+      <li class="page-item disabled"><span class="page-link">…</span></li>
+      {% endif %}
+    {% endfor %}
+    <li class="page-item {{ 'disabled' if not pagination.has_next }}">
+      <a class="page-link" href="{{ url_for('admin.expense_queue', page=pagination.next_num,
+         status=f_status, user_id=f_user_id, date_from=f_from, date_to=f_to) }}">Next</a>
+    </li>
+  </ul>
+</nav>
+{% endif %}
+{% endblock %}
