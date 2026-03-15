@@ -1,25 +1,15 @@
 import csv
 import io
 from datetime import datetime
-from functools import wraps
 
 from flask import Blueprint, render_template, redirect, url_for, request, flash, Response
 from flask_login import login_required, current_user
 from sqlalchemy.exc import IntegrityError
 
 from ..models import db, User, LeadActivity, Lead, SystemConfig
+from ..decorators import admin_required
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
-
-
-def admin_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if not current_user.is_admin:
-            flash('Access denied: Admins only.', 'danger')
-            return redirect(url_for('leads.index'))
-        return f(*args, **kwargs)
-    return decorated
 
 
 @admin_bp.route('/users', methods=['GET', 'POST'])

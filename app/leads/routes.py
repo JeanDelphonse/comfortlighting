@@ -2,7 +2,6 @@ import csv
 import io
 import re
 from datetime import datetime
-from functools import wraps
 
 from flask import (Blueprint, render_template, redirect, url_for,
                    request, flash, session, Response, abort, jsonify)
@@ -10,20 +9,10 @@ from flask_login import login_required, current_user
 
 from ..models import db, Lead, User
 from ..constants import ACTION_VALUES, PROGRESS_VALUES, ACTION_BADGE_CLASS, LEADS_PER_PAGE
+from ..decorators import admin_required
+
 
 leads_bp = Blueprint('leads', __name__)
-
-
-# ── Decorators ────────────────────────────────────────────────────────────────
-
-def admin_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if not current_user.is_admin:
-            flash('Access denied: Admins only.', 'danger')
-            return redirect(url_for('leads.index'))
-        return f(*args, **kwargs)
-    return decorated
 
 
 # ── Validation ────────────────────────────────────────────────────────────────
@@ -323,28 +312,25 @@ def view(lead_id: int):
     proposal = Proposal.query.filter_by(lead_id=lead_id).first()
     contract = Contract.query.filter_by(lead_id=lead_id).first()
 
-    recent_activities = []
-    activity_stats    = None
-    if True:
-        recent_activities = (LeadActivity.query
-                             .filter_by(lead_id=lead_id)
-                             .order_by(LeadActivity.activity_date.desc())
-                             .limit(5).all())
-        total_entries = LeadActivity.query.filter_by(lead_id=lead_id).count()
-        total_spend   = (db.session.query(db.func.sum(LeadActivity.amount))
-                         .filter_by(lead_id=lead_id).scalar() or 0)
-        pending_count = LeadActivity.query.filter_by(lead_id=lead_id, status='Submitted').count()
-        reimb_amt     = (db.session.query(db.func.sum(LeadActivity.amount))
-                         .filter(LeadActivity.lead_id == lead_id,
-                                 LeadActivity.reimbursable == True,
-                                 LeadActivity.status.in_(['Submitted', 'Approved']))
-                         .scalar() or 0)
-        activity_stats = {
-            'total_entries':    total_entries,
-            'total_spend':      float(total_spend),
-            'pending_count':    pending_count,
-            'reimbursable_amt': float(reimb_amt),
-        }
+    recent_activities = (LeadActivity.query
+                         .filter_by(lead_id=lead_id)
+                         .order_by(LeadActivity.activity_date.desc())
+                         .limit(5).all())
+    total_entries = LeadActivity.query.filter_by(lead_id=lead_id).count()
+    total_spend   = (db.session.query(db.func.sum(LeadActivity.amount))
+                     .filter_by(lead_id=lead_id).scalar() or 0)
+    pending_count = LeadActivity.query.filter_by(lead_id=lead_id, status='Submitted').count()
+    reimb_amt     = (db.session.query(db.func.sum(LeadActivity.amount))
+                     .filter(LeadActivity.lead_id == lead_id,
+                             LeadActivity.reimbursable == True,
+                             LeadActivity.status.in_(['Submitted', 'Approved']))
+                     .scalar() or 0)
+    activity_stats = {
+        'total_entries':    total_entries,
+        'total_spend':      float(total_spend),
+        'pending_count':    pending_count,
+        'reimbursable_amt': float(reimb_amt),
+    }
 
     return render_template(
         'leads/view.html',

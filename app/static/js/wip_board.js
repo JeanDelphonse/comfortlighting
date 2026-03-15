@@ -72,8 +72,13 @@
     return meta ? meta.content : '';
   }
 
+  function wipUrl(leadId) {
+    const tpl = (document.getElementById('wip-section') || {}).dataset.toggleUrl || '/leads/0/wip';
+    return tpl.replace('/0/wip', '/' + leadId + '/wip');
+  }
+
   function toggleWip(leadId, addToWip, callback) {
-    fetch('/leads/' + leadId + '/wip', {
+    fetch(wipUrl(leadId), {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
       body: JSON.stringify({ wip: addToWip })

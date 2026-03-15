@@ -34,7 +34,10 @@ RECEIPT_MAGIC    = {
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _can_access(lead: Lead) -> bool:
-    return True  # all authenticated users may log activities on any lead
+    """Admins can access any lead's activities; sales reps only their assigned leads."""
+    if current_user.is_admin:
+        return True
+    return lead.assigned_user_id == current_user.id
 
 
 def _get_mileage_rate() -> float:
