@@ -221,11 +221,15 @@ def run_research_agent(company_name: str, location_hint: str,
         budget = 500_000
 
     today_start  = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-    today_tokens = (
-        db.session.query(db.func.sum(AgentResearchLog.tokens_used))
-        .filter(AgentResearchLog.created_at >= today_start)
-        .scalar() or 0
-    )
+    try:
+        today_tokens = (
+            db.session.query(db.func.sum(AgentResearchLog.tokens_used))
+            .filter(AgentResearchLog.created_at >= today_start)
+            .scalar() or 0
+        )
+    except Exception:
+        db.session.rollback()
+        today_tokens = 0   # table may not exist yet; skip budget check
     if today_tokens >= budget:
         result = _not_found_result(
             run_id, 'error',

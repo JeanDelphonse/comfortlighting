@@ -4,8 +4,6 @@ Strips navigation, scripts, and boilerplate before returning plain text.
 """
 import re
 
-import requests
-
 _HEADERS = {
     'User-Agent': (
         'Mozilla/5.0 (compatible; ComfortLightingResearch/1.0; '
@@ -27,6 +25,7 @@ def fetch_url(url: str) -> dict:
         return {'url': url, 'error': 'Invalid URL — must start with http:// or https://.', 'text': ''}
 
     try:
+        import requests  # lazy import — requests may not be installed in all envs
         resp = requests.get(
             url,
             headers=_HEADERS,
@@ -66,9 +65,5 @@ def fetch_url(url: str) -> dict:
             'length': len(text),
         }
 
-    except requests.exceptions.Timeout:
-        return {'url': url, 'error': 'Request timed out.', 'text': ''}
-    except requests.exceptions.TooManyRedirects:
-        return {'url': url, 'error': 'Too many redirects.', 'text': ''}
     except Exception as exc:
         return {'url': url, 'error': str(exc)[:200], 'text': ''}
