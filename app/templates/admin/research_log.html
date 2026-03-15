@@ -1,0 +1,221 @@
+{% extends 'base.html' %}
+{% block title %}Agent Research Log{% endblock %}
+
+{% block content %}
+
+{% if detail %}
+{# ── Detail view ─────────────────────────────────────────────────────────── #}
+<div class="d-flex align-items-center mb-3">
+  <a href="{{ url_for('admin.research_log') }}" class="btn btn-sm btn-outline-secondary me-3">
+    <i class="bi bi-arrow-left"></i>
+  </a>
+  <h4 class="fw-bold mb-0"><i class="bi bi-robot me-2"></i>Research Run Detail</h4>
+</div>
+
+<div class="row g-3">
+  <div class="col-md-6">
+    <div class="card shadow-sm">
+      <div class="card-header">Run Info</div>
+      <div class="card-body small">
+        <table class="table table-sm mb-0">
+          <tbody>
+            <tr><th class="text-nowrap" style="width:40%">Run ID</th><td class="font-monospace">{{ detail.run_id }}</td></tr>
+            <tr><th>Company</th><td>{{ detail.company_searched }}</td></tr>
+            <tr><th>Location Hint</th><td>{{ detail.location_hint or '—' }}</td></tr>
+            <tr><th>Status</th>
+              <td>
+                {% if detail.status == 'success' %}
+                  <span class="badge bg-success">success</span>
+                {% elif detail.status == 'timeout' %}
+                  <span class="badge bg-warning text-dark">timeout</span>
+                {% else %}
+                  <span class="badge bg-secondary">{{ detail.status }}</span>
+                {% endif %}
+              </td>
+            </tr>
+            <tr><th>User</th><td>{{ detail.user.username if detail.user else '—' }}</td></tr>
+            <tr><th>Lead</th>
+              <td>
+                {% if detail.lead_id %}
+                  <a href="{{ url_for('leads.view', lead_id=detail.lead_id) }}">#{{ detail.lead_id }}</a>
+                {% else %}
+                  <span class="text-muted">Not saved</span>
+                {% endif %}
+              </td>
+            </tr>
+            <tr><th>Timestamp</th><td>{{ detail.created_at.strftime('%Y-%m-%d %H:%M:%S') if detail.created_at else '—' }}</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card shadow-sm">
+      <div class="card-header">Performance</div>
+      <div class="card-body small">
+        <table class="table table-sm mb-0">
+          <tbody>
+            <tr><th style="width:50%">Duration</th><td>{{ detail.run_duration_sec }}s</td></tr>
+            <tr><th>Tokens Used</th><td>{{ '{:,}'.format(detail.tokens_used) if detail.tokens_used else '—' }}</td></tr>
+            <tr><th>Fields Populated</th><td>{{ detail.fields_populated }} / {{ detail.fields_total }}</td></tr>
+            <tr><th>Searches</th><td>{{ detail.total_searches or 0 }}</td></tr>
+            <tr><th>URLs Fetched</th><td>{{ detail.total_urls_fetched or 0 }}</td></tr>
+            {% if detail.error_message %}
+            <tr><th>Error</th><td class="text-danger">{{ detail.error_message }}</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12">
+    <div class="card shadow-sm">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span>Raw JSON Response</span>
+        <button class="btn btn-sm btn-outline-secondary" onclick="copyJson()">
+          <i class="bi bi-clipboard me-1"></i>Copy
+        </button>
+      </div>
+      <div class="card-body p-0">
+        <pre id="json-block" class="mb-0 p-3" style="max-height:500px;overflow:auto;font-size:0.8rem">{{ pretty_json }}</pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% else %}
+{# ── List view ───────────────────────────────────────────────────────────── #}
+<div class="d-flex align-items-center mb-3">
+  <h4 class="fw-bold mb-0"><i class="bi bi-robot me-2"></i>Agent Research Log</h4>
+</div>
+
+<form class="card card-body mb-3 shadow-sm" method="get">
+  <div class="row g-2 align-items-end">
+    <div class="col-md-3">
+      <label class="form-label small mb-1">Company</label>
+      <input type="text" name="q" class="form-control form-control-sm" value="{{ q }}" placeholder="Search…">
+    </div>
+    <div class="col-md-2">
+      <label class="form-label small mb-1">User</label>
+      <select name="user_id" class="form-select form-select-sm">
+        <option value="">— All —</option>
+        {% for u in users %}
+        <option value="{{ u.id }}" {{ 'selected' if f_user == u.id|string }}>{{ u.username }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-2">
+      <label class="form-label small mb-1">From</label>
+      <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}">
+    </div>
+    <div class="col-md-2">
+      <label class="form-label small mb-1">To</label>
+      <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to }}">
+    </div>
+    <div class="col-md-3 d-flex gap-2">
+      <button type="submit" class="btn btn-primary btn-sm">Filter</button>
+      <a href="{{ url_for('admin.research_log') }}" class="btn btn-outline-secondary btn-sm">Clear</a>
+    </div>
+  </div>
+</form>
+
+<div class="card shadow-sm">
+  <div class="card-body p-0">
+    <table class="table table-sm table-hover mb-0 align-middle">
+      <thead class="table-light">
+        <tr>
+          <th>Timestamp</th>
+          <th>Company</th>
+          <th>Location</th>
+          <th>User</th>
+          <th>Status</th>
+          <th class="text-end">Duration</th>
+          <th class="text-end">Tokens</th>
+          <th class="text-end">Fields</th>
+          <th>Lead</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in entries %}
+        <tr>
+          <td class="text-nowrap small text-muted">
+            {{ e.created_at.strftime('%Y-%m-%d %H:%M') if e.created_at else '—' }}
+          </td>
+          <td class="fw-semibold">{{ e.company_searched }}</td>
+          <td class="small text-muted">{{ e.location_hint or '—' }}</td>
+          <td>{{ e.user.username if e.user else '—' }}</td>
+          <td>
+            {% if e.status == 'success' %}
+              <span class="badge bg-success">success</span>
+            {% elif e.status == 'timeout' %}
+              <span class="badge bg-warning text-dark">timeout</span>
+            {% else %}
+              <span class="badge bg-secondary">{{ e.status }}</span>
+            {% endif %}
+          </td>
+          <td class="text-end small">{{ e.run_duration_sec }}s</td>
+          <td class="text-end small">{{ '{:,}'.format(e.tokens_used) if e.tokens_used else '—' }}</td>
+          <td class="text-end small">{{ e.fields_populated }}/{{ e.fields_total }}</td>
+          <td>
+            {% if e.lead_id %}
+              <a href="{{ url_for('leads.view', lead_id=e.lead_id) }}" class="small">#{{ e.lead_id }}</a>
+            {% else %}
+              <span class="text-muted small">—</span>
+            {% endif %}
+          </td>
+          <td>
+            <a href="{{ url_for('admin.research_log_detail', run_id=e.run_id) }}"
+               class="btn btn-sm btn-outline-secondary py-0 px-2">
+              <i class="bi bi-eye"></i>
+            </a>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="10" class="text-center text-muted py-4">No research runs found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% if pagination and pagination.pages > 1 %}
+<nav class="mt-3">
+  <ul class="pagination pagination-sm justify-content-center mb-0">
+    <li class="page-item {{ 'disabled' if not pagination.has_prev }}">
+      <a class="page-link" href="?page={{ pagination.prev_num }}&q={{ q }}&user_id={{ f_user }}&date_from={{ date_from }}&date_to={{ date_to }}">«</a>
+    </li>
+    {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+      {% if p %}
+        <li class="page-item {{ 'active' if p == pagination.page }}">
+          <a class="page-link" href="?page={{ p }}&q={{ q }}&user_id={{ f_user }}&date_from={{ date_from }}&date_to={{ date_to }}">{{ p }}</a>
+        </li>
+      {% else %}
+        <li class="page-item disabled"><span class="page-link">…</span></li>
+      {% endif %}
+    {% endfor %}
+    <li class="page-item {{ 'disabled' if not pagination.has_next }}">
+      <a class="page-link" href="?page={{ pagination.next_num }}&q={{ q }}&user_id={{ f_user }}&date_from={{ date_from }}&date_to={{ date_to }}">»</a>
+    </li>
+  </ul>
+</nav>
+{% endif %}
+
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function copyJson() {
+  const text = document.getElementById('json-block').textContent;
+  navigator.clipboard.writeText(text).then(function() {
+    const btn = event.currentTarget;
+    btn.innerHTML = '<i class="bi bi-check me-1"></i>Copied';
+    setTimeout(function() { btn.innerHTML = '<i class="bi bi-clipboard me-1"></i>Copy'; }, 2000);
+  });
+}
+</script>
+{% endblock %}

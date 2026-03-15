@@ -6,7 +6,7 @@ from flask import Blueprint, render_template, redirect, url_for, request, flash,
 from flask_login import login_required, current_user
 from sqlalchemy.exc import IntegrityError
 
-from ..models import db, User, LeadActivity, Lead, SystemConfig
+from ..models import db, User, LeadActivity, Lead, SystemConfig, AgentResearchLog
 from ..decorators import admin_required
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
@@ -275,6 +275,59 @@ def update_mileage_rate():
     db.session.commit()
     flash(f'IRS mileage rate updated to ${rate:.4f}/mile.', 'success')
     return redirect(url_for('admin.expense_queue'))
+
+
+# ── Agent Research Log ─────────────────────────────────────────────────────────
+
+@admin_bp.route('/research-log')
+@login_required
+@admin_required
+def research_log():
+    q          = request.args.get('q', '').strip()
+    f_user     = request.args.get('user_id', '').strip()
+    date_from  = request.args.get('date_from', '').strip()
+    date_to    = request.args.get('date_to', '').strip()
+    page       = max(1, int(request.args.get('page', 1) or 1))
+
+    query = AgentResearchLog.query
+    if q:
+        query = query.filter(AgentResearchLog.company_searched.ilike(f'%{q}%'))
+    if f_user and f_user.isdigit():
+        query = query.filter(AgentResearchLog.user_id == int(f_user))
+    if date_from:
+        query = query.filter(AgentResearchLog.created_at >= date_from)
+    if date_to:
+        query = query.filter(AgentResearchLog.created_at <= date_to + ' 23:59:59')
+
+    query      = query.order_by(AgentResearchLog.created_at.desc())
+    pagination = query.paginate(page=page, per_page=25, error_out=False)
+    users      = User.query.filter_by(active=True).order_by(User.username).all()
+
+    return render_template(
+        'admin/research_log.html',
+        entries=pagination.items,
+        pagination=pagination,
+        users=users,
+        q=q, f_user=f_user, date_from=date_from, date_to=date_to,
+    )
+
+
+@admin_bp.route('/research-log/<run_id>')
+@login_required
+@admin_required
+def research_log_detail(run_id: str):
+    import json as _json
+    entry = AgentResearchLog.query.filter_by(run_id=run_id).first_or_404()
+    try:
+        raw = _json.loads(entry.raw_json or '{}')
+        pretty_json = _json.dumps(raw, indent=2)
+    except Exception:
+        pretty_json = entry.raw_json or '{}'
+    return render_template(
+        'admin/research_log.html',
+        detail=entry,
+        pretty_json=pretty_json,
+    )
 
 
 # ── Clause Templates ─────────────────────────────────────────────────────────

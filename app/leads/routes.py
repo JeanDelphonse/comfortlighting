@@ -1,15 +1,18 @@
 import csv
 import io
 import re
+import uuid
 from datetime import datetime
 
 from flask import (Blueprint, render_template, redirect, url_for,
-                   request, flash, session, Response, abort, jsonify)
+                   request, flash, session, Response, abort, jsonify,
+                   current_app)
 from flask_login import login_required, current_user
 
-from ..models import db, Lead, User
+from ..models import db, Lead, User, AgentResearchLog
 from ..constants import ACTION_VALUES, PROGRESS_VALUES, ACTION_BADGE_CLASS, LEADS_PER_PAGE
 from ..decorators import admin_required
+from ..extensions import limiter
 
 
 leads_bp = Blueprint('leads', __name__)
@@ -272,24 +275,36 @@ def add():
             if new_note:
                 notes = f'[{datetime.now().strftime("%Y-%m-%d %H:%M")} \u2013 {current_user.username}] {new_note}'
 
+            # Link to agent research run if form was populated by the agent
+            agent_run_id = form_data.get('agent_research_run_id', '').strip() or None
+
             lead = Lead(
-                company_name=data['company_name'],
-                action=data['action'],
-                contact=data['contact'],
-                address=data['address'],
-                number=data['number'],
-                email=data['email'],
-                notes=notes,
-                assigned_user_id=data['assigned_user_id'],
-                sq_ft=data['sq_ft'],
-                targets=data['targets'],
-                potential=data['potential'],
-                progress=data['progress'],
-                expected=data['expected'],
-                roi=data['roi'],
-                annual_sales_locations=data['annual_sales_locations'],
+                company_name          = data['company_name'],
+                action                = data['action'],
+                contact               = data['contact'],
+                address               = data['address'],
+                number                = data['number'],
+                email                 = data['email'],
+                notes                 = notes,
+                assigned_user_id      = data['assigned_user_id'],
+                sq_ft                 = data['sq_ft'],
+                targets               = data['targets'],
+                potential             = data['potential'],
+                progress              = data['progress'],
+                expected              = data['expected'],
+                roi                   = data['roi'],
+                annual_sales_locations= data['annual_sales_locations'],
+                agent_research_run_id = agent_run_id,
             )
             db.session.add(lead)
+            db.session.flush()  # get lead.id
+
+            # Back-fill lead_id on the research log row
+            if agent_run_id:
+                log = AgentResearchLog.query.filter_by(run_id=agent_run_id).first()
+                if log:
+                    log.lead_id = lead.id
+
             db.session.commit()
             session.pop('lead_draft', None)
             flash('Lead created successfully.', 'success')
@@ -462,3 +477,40 @@ def toggle_wip(lead_id: int):
         'wip_since': lead.wip_since.isoformat() if lead.wip_since else None,
         'progress': lead.progress,
     })
+
+
+# ── AI Agent: company research ────────────────────────────────────────────────
+
+@leads_bp.route('/leads/research', methods=['POST'])
+@login_required
+@limiter.limit('20 per hour')
+def research_lead():
+    """Run the AI research agent for a company name and return pre-fill data."""
+    data         = request.get_json(silent=True) or {}
+    company_name = (data.get('company_name') or '').strip()
+    location_hint= (data.get('location_hint') or '').strip()
+
+    if not company_name:
+        return jsonify({'error': 'Company name is required.'}), 400
+
+    run_id = str(uuid.uuid4())
+
+    try:
+        from ..agent.research_agent import run_research_agent
+        result = run_research_agent(
+            company_name  = company_name,
+            location_hint = location_hint,
+            run_id        = run_id,
+            user_id       = current_user.id,
+        )
+    except Exception as exc:
+        current_app.logger.error('research_lead failed [%s]: %s', run_id, exc)
+        return jsonify({'error': 'Research failed. Please try again.'}), 500
+
+    return jsonify({
+        'run_id':   run_id,
+        'status':   result.status,
+        'fields':   result.to_form_dict(),
+        'extended': result.to_extended_dict(),
+        'meta':     result.to_meta_dict(),
+    }), 200

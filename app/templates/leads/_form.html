@@ -15,7 +15,7 @@
 <div class="row g-3">
 
   <!-- Company Name -->
-  <div class="col-md-6">
+  <div class="col-md-6" data-agent-field="company_name">
     <label class="form-label fw-semibold">Company Name <span class="text-danger">*</span></label>
     <input type="text" name="company_name"
            class="form-control{{ cls('company_name') }}"
@@ -24,7 +24,7 @@
   </div>
 
   <!-- Action -->
-  <div class="col-md-3">
+  <div class="col-md-3" data-agent-field="action">
     <label class="form-label fw-semibold">Action <span class="text-danger">*</span></label>
     <select name="action" class="form-select{{ cls('action') }}" required>
       <option value="">— Select —</option>
@@ -36,7 +36,7 @@
   </div>
 
   <!-- Progress -->
-  <div class="col-md-3">
+  <div class="col-md-3" data-agent-field="progress">
     <label class="form-label fw-semibold">Progress</label>
     <select name="progress" class="form-select{{ cls('progress') }}">
       <option value="">— Select —</option>
@@ -48,7 +48,7 @@
   </div>
 
   <!-- Contact -->
-  <div class="col-md-6">
+  <div class="col-md-6" data-agent-field="contact">
     <label class="form-label fw-semibold">Contact <span class="text-danger">*</span></label>
     <input type="text" name="contact"
            class="form-control{{ cls('contact') }}"
@@ -58,7 +58,7 @@
   </div>
 
   <!-- Phone -->
-  <div class="col-md-3">
+  <div class="col-md-3" data-agent-field="number">
     <label class="form-label fw-semibold">Phone <span class="text-danger">*</span></label>
     <input type="tel" name="number"
            class="form-control{{ cls('number') }}"
@@ -67,7 +67,7 @@
   </div>
 
   <!-- Email -->
-  <div class="col-md-3">
+  <div class="col-md-3" data-agent-field="email">
     <label class="form-label fw-semibold">Email <span class="text-danger">*</span></label>
     <input type="email" name="email"
            class="form-control{{ cls('email') }}"
@@ -76,7 +76,7 @@
   </div>
 
   <!-- Address -->
-  <div class="col-12">
+  <div class="col-12" data-agent-field="address">
     <label class="form-label fw-semibold">Address</label>
     <textarea name="address" class="form-control{{ cls('address') }}" rows="2">{{ val('address') }}</textarea>
     {{ field_error('address') }}
@@ -97,7 +97,7 @@
   </div>
 
   <!-- Sq Ft -->
-  <div class="col-md-3">
+  <div class="col-md-3" data-agent-field="sq_ft">
     <label class="form-label fw-semibold">Sq Ft</label>
     <input type="number" name="sq_ft"
            class="form-control{{ cls('sq_ft') }}"
@@ -106,7 +106,7 @@
   </div>
 
   <!-- Potential -->
-  <div class="col-md-3">
+  <div class="col-md-3" data-agent-field="potential">
     <label class="form-label fw-semibold">Potential ($)</label>
     <input type="number" name="potential"
            class="form-control{{ cls('potential') }}"
@@ -132,8 +132,8 @@
     {{ field_error('expected') }}
   </div>
 
-  <!-- Targets -->
-  <div class="col-md-6">
+  <!-- Targets / Facility Type -->
+  <div class="col-md-6" data-agent-field="targets">
     <label class="form-label fw-semibold">Lighting Targets</label>
     <textarea name="targets" class="form-control{{ cls('targets') }}" rows="2"
               placeholder="e.g. Clean rooms, loading docks, aisles">{{ val('targets') }}</textarea>
@@ -141,7 +141,7 @@
   </div>
 
   <!-- Annual Sales / Other Locations -->
-  <div class="col-md-6">
+  <div class="col-md-6" data-agent-field="annual_sales_locations">
     <label class="form-label fw-semibold">Annual Sales / Other Locations</label>
     <textarea name="annual_sales_locations"
               class="form-control{{ cls('annual_sales_locations') }}" rows="2"
@@ -150,7 +150,7 @@
   </div>
 
   <!-- New Note -->
-  <div class="col-12">
+  <div class="col-12" data-agent-field="new_note">
     <label class="form-label fw-semibold">Add Note</label>
     <textarea name="new_note" id="new_note" class="form-control" rows="3"
               placeholder="Enter a new note – it will be prepended with a timestamp to the note history."></textarea>

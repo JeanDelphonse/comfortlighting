@@ -68,6 +68,7 @@ class Lead(db.Model):
     annual_sales_locations = db.Column(db.Text)
     wip                    = db.Column(db.SmallInteger, nullable=False, default=0, index=True)
     wip_since              = db.Column(db.DateTime, nullable=True)
+    agent_research_run_id  = db.Column(db.String(36), nullable=True, index=True)
 
     assigned_user = db.relationship(
         'User',
@@ -339,6 +340,41 @@ class LeadActivity(db.Model):
                                   foreign_keys=[user_id])
     category    = db.relationship('ExpenseCategory', foreign_keys=[category_id])
     subcategory = db.relationship('ExpenseCategory', foreign_keys=[subcategory_id])
+
+
+class AgentResearchLog(db.Model):
+    __tablename__ = 'agent_research_log'
+
+    id               = db.Column(db.Integer, primary_key=True)
+    lead_id          = db.Column(
+        db.Integer,
+        db.ForeignKey('leads.id', ondelete='SET NULL'),
+        nullable=True,
+        index=True,
+    )
+    run_id           = db.Column(db.String(36), nullable=False, unique=True)
+    company_searched = db.Column(db.String(255), nullable=False)
+    user_id          = db.Column(
+        db.Integer,
+        db.ForeignKey('users.id', ondelete='RESTRICT'),
+        nullable=False,
+        index=True,
+    )
+    fields_populated = db.Column(db.Integer, nullable=False, default=0)
+    fields_not_found = db.Column(db.Integer, nullable=False, default=0)
+    tokens_used      = db.Column(db.Integer, nullable=False, default=0)
+    run_duration_sec = db.Column(db.Numeric(6, 2), nullable=False, default=0)
+    search_count     = db.Column(db.Integer, nullable=False, default=0)
+    urls_fetched     = db.Column(db.Integer, nullable=False, default=0)
+    raw_json         = db.Column(db.Text, nullable=False, default='{}')
+    status           = db.Column(db.String(20), nullable=False, default='success')
+    error_message    = db.Column(db.Text, nullable=True)
+    created_at       = db.Column(db.DateTime, nullable=False, default=datetime.utcnow,
+                                 index=True)
+
+    user = db.relationship('User', backref=db.backref('research_runs', lazy='dynamic'),
+                           foreign_keys=[user_id])
+    lead = db.relationship('Lead', backref=db.backref('research_logs', lazy='dynamic'))
 
 
 class ClauseTemplate(db.Model):

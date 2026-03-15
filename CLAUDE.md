@@ -26,7 +26,7 @@ comfortlighting/
 │   ├── decorators.py          # Shared decorators: admin_required
 │   ├── models.py              # SQLAlchemy models: User, Lead, Proposal, Contract,
 │   │                          #   ContractVersion, ClauseTemplate, SystemConfig,
-│   │                          #   ExpenseCategory, LeadActivity
+│   │                          #   ExpenseCategory, LeadActivity, AgentResearchLog
 │   ├── constants.py           # ACTION_VALUES, PROGRESS_VALUES, ACTION_BADGE_CLASS, LEADS_PER_PAGE
 │   ├── auth/routes.py         # /login, /logout
 │   ├── leads/routes.py        # /, /leads/add, /leads/<id>, /leads/<id>/edit, /leads/<id>/delete
@@ -35,6 +35,7 @@ comfortlighting/
 │   ├── admin/routes.py        # /admin/users, /admin/clause-templates, /admin/clause-templates/<key>
 │   │                          # /admin/expenses, /admin/expenses/approve|reject|reimburse|export
 │   │                          # /admin/settings/mileage-rate
+│   │                          # /admin/research-log, /admin/research-log/<run_id>
 │   ├── proposals/
 │   │   ├── llm.py             # generate(), parse_sections(), build_prompt(), SYSTEM_PROMPT
 │   │   ├── pdf.py             # render_pdf(lead, proposal) → bytes (ReportLab)
@@ -51,18 +52,32 @@ comfortlighting/
 │   │                          # /leads/<id>/activities/receipt/<entry_id>
 │   │                          # /expenses/subcategories (AJAX)
 │   │                          # Access: admin always; sales only if lead.assigned_user_id == current_user.id
+│   ├── agent/                     # AI Agent Lead Research package
+│   │   ├── __init__.py
+│   │   ├── research_agent.py      # run_research_agent() — Claude tool-use agentic loop
+│   │   ├── prompts/
+│   │   │   └── research_system_prompt.txt  # Agent system prompt + JSON schema
+│   │   ├── schemas/
+│   │   │   └── lead_research_result.py     # FieldResult, LeadResearchResult dataclasses
+│   │   └── tools/
+│   │       ├── web_search.py      # Serper API wrapper
+│   │       ├── fetch_url.py       # URL fetcher with BeautifulSoup text extraction
+│   │       └── calculate_roi.py   # LED retrofit ROI calculator (loads params from system_config)
 │   ├── static/
-│   │   ├── css/app.css
+│   │   ├── css/app.css            # Includes .confidence-badge, .confidence-high/medium/low styles
 │   │   └── js/
 │   │       ├── app.js
 │   │       ├── activity_form.js   # Category AJAX, mileage calc, conditional fields
-│   │       └── wip_board.js       # WIP drag-and-drop (native HTML5 events, not SortableJS)
+│   │       ├── wip_board.js       # WIP drag-and-drop (native HTML5 events, not SortableJS)
+│   │       └── agent_autofill.js  # Research button, progress bar, field population, badges
 │   └── templates/
 │       ├── base.html              # Includes Expenses nav link + pending badge for admin
 │       ├── auth/login.html
 │       ├── leads/index.html, add.html, edit.html, view.html, _form.html
+│       │                          # add.html has research bar + agent_autofill.js
+│       │                          # _form.html has data-agent-field attributes on wrappers
 │       ├── activities/form.html, log.html, view_entry.html
-│       └── admin/users.html, clause_templates.html, expense_queue.html
+│       └── admin/users.html, clause_templates.html, expense_queue.html, research_log.html
 ├── sql/
 │   ├── schema.sql                         # Full DDL — all tables for fresh install
 │   ├── seed_leads.sql                     # 17 lead records from SalesStatusBlank.xlsx
@@ -71,7 +86,9 @@ comfortlighting/
 │   ├── migration_add_assigned_user.sql    # ALTER TABLE leads — add assigned_user_id FK
 │   ├── migration_add_wip_columns.sql      # ALTER TABLE leads — add wip, wip_since columns
 │   ├── migration_system_config.sql        # CREATE system_config; seed IRS mileage rate
-│   └── migration_create_lead_activities.sql  # CREATE expense_categories + lead_activities; seed categories
+│   ├── migration_create_lead_activities.sql  # CREATE expense_categories + lead_activities; seed categories
+│   └── migration_agent_research.sql       # CREATE agent_research_log; ALTER leads ADD agent_research_run_id;
+│                                          # seed 8 ROI config params into system_config
 ├── docs/
 │   └── *.docx / *.xlsx                    # PRD documents and seed data spreadsheet
 └── logs/
@@ -90,7 +107,9 @@ python app.py
 |---|---|---|
 | `SECRET_KEY` | Yes | Flask session signing key |
 | `DATABASE_URL` | Yes | `mysql+pymysql://user:pass@localhost/comfortlighting` |
-| `ANTHROPIC_API_KEY` | Yes | Anthropic API key for proposal/contract generation |
+| `ANTHROPIC_API_KEY` | Yes | Anthropic API key for proposal/contract/agent research |
+| `SERPER_API_KEY` | No | Serper.dev API key — research feature disabled if absent |
+| `AGENT_DAILY_TOKEN_BUDGET` | No | Max Claude tokens/day for research agent (default: 500000) |
 
 ## Database
 All schema in `sql/schema.sql`. Tables: `users`, `leads`, `proposals`, `contracts`, `contract_versions`, `clause_templates`, `system_config`, `expense_categories`, `lead_activities`.
@@ -108,6 +127,7 @@ All schema in `sql/schema.sql`. Tables: `users`, `leads`, `proposals`, `contract
 3. `migration_add_wip_columns.sql` — add wip, wip_since columns to leads
 4. `migration_system_config.sql` — create system_config, seed IRS mileage rate
 5. `migration_create_lead_activities.sql` — create expense_categories + lead_activities, seed categories
+6. `migration_agent_research.sql` — create agent_research_log, add agent_research_run_id to leads, seed ROI config params
 
 ## User Roles
 | Role | Access |
@@ -176,6 +196,7 @@ All AJAX POST/PATCH requests must include the header `X-CSRFToken`. Config has `
 Flask-Limiter singleton defined in `app/extensions.py` (not `app/__init__.py`) to avoid circular imports. Key function uses `current_user.id` for authenticated users, falls back to IP.
 - Proposals: 10 LLM calls/hour per user
 - Contracts: 5 LLM calls/hour per user
+- Agent Research: 20 calls/hour per user (plus daily token budget check via `system_config`)
 
 ### Error Logging
 All unhandled exceptions (non-HTTP) are logged to `logs/error.log` and return `'An internal error occurred.', 500`. HTTP exceptions (404, 403, etc.) pass through Flask's default handlers. Passenger requires a complete HTTP response on every request — never re-raise inside `@app.errorhandler`.
@@ -204,7 +225,7 @@ include = ['passenger_wsgi.py','app.py','config.py','requirements.txt','.htacces
            'sql/seed_clause_templates.sql','sql/migrate_add_legal_role.sql',
            'sql/seed_leads.sql','sql/migration_add_assigned_user.sql',
            'sql/migration_add_wip_columns.sql','sql/migration_system_config.sql',
-           'sql/migration_create_lead_activities.sql']
+           'sql/migration_create_lead_activities.sql','sql/migration_agent_research.sql']
 app_files = []
 for root, dirs, files in os.walk('app'):
     dirs[:] = [d for d in dirs if d != '__pycache__']
@@ -283,6 +304,22 @@ with zipfile.ZipFile('comfortlighting_deploy.zip','w',zipfile.ZIP_DEFLATED) as z
 - CSV export with 20 columns via `/admin/expenses/export`
 - Pending Submitted count shown as badge on nav link and in `pending_expense_count` context variable
 
+### AI Agent Lead Research (`/leads/research` — Add Lead page)
+- Research bar card at top of Add Lead form: company name + optional city/state → Research button
+- Calls `POST /leads/research` (rate-limited 20/hour; daily token budget from `system_config`)
+- Backend: `app/agent/research_agent.py` — Claude `claude-sonnet-4-6` agentic tool-use loop
+  - Tools: `web_search` (Serper API), `fetch_url` (BeautifulSoup), `calculate_roi` (loads params from DB)
+  - Loops up to 20 iterations or 55-second timeout; writes audit record to `agent_research_log` table
+- Returns JSON with `fields` (10 form-fill keys), `extended` (8 extra intel items), `meta`, `run_id`
+- Frontend (`agent_autofill.js`): populates form fields, renders confidence badges (High/Medium/Low)
+- Confidence badge styles in `app.css`: `.confidence-high/medium/low/not-found`, `.agent-low-confidence`
+- `agent_research_run_id` hidden field links the saved lead to the research run for audit
+- Research Summary panel shows: contact title, employee count, locations, kWh savings, payback, website, LinkedIn, news
+- Clear / Re-Research buttons on the form
+- Research feature disabled gracefully if `SERPER_API_KEY` not set
+- Admin audit log at `/admin/research-log` (paginated, filterable by company/user/date)
+- Detail view at `/admin/research-log/<run_id>` shows raw JSON response
+
 ### One-time Setup Route (`/setup`)
 - Available only when admin user has invalid/empty Werkzeug hash
 - Self-disables once valid password is stored
@@ -295,5 +332,5 @@ New Lead → Call Scheduled → Contacted → Quote Requested → Follow-Up → 
 - Static files: `.htaccess` rewrites `^static/(.*)$` → `app/static/$1` so Apache serves them directly (bypasses Passenger)
 - MySQL pool: `pool_pre_ping=True`, `pool_recycle=280` to handle cold-start stale connections
 - After deploy, restart the app in cPanel Python App Manager
-- `pip install anthropic reportlab Flask-Limiter` required in cPanel virtual environment
+- `pip install anthropic reportlab Flask-Limiter requests beautifulsoup4` required in cPanel virtual environment
 - `uploads/` directory must be writable by the Passenger process — created automatically on first receipt save via `os.makedirs(exist_ok=True)`
