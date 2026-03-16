@@ -171,11 +171,12 @@
       toggleWip(leadId, true, function (data) {
         if (data) {
           updateWipCount(1);
+          var reloadTimer = setTimeout(function () { location.reload(); }, 6000);
           showToast(companyName + ' moved to Work In Progress', 'success', function () {
+            clearTimeout(reloadTimer);
             toggleWip(leadId, false, function () { location.reload(); });
           });
         } else {
-          // Restore: reload to get correct state
           location.reload();
         }
       });
@@ -213,7 +214,9 @@
       toggleWip(leadId, false, function (data) {
         if (data) {
           updateWipCount(-1);
+          var reloadTimer = setTimeout(function () { location.reload(); }, 6000);
           showToast(companyName + ' returned to Lead List', 'info', function () {
+            clearTimeout(reloadTimer);
             toggleWip(leadId, true, function () { location.reload(); });
           });
         } else {
