@@ -94,7 +94,7 @@
 
 {% block scripts %}
 <script>
-  const RESEARCH_URL = "{{ url_for('leads.research_lead') }}";
+  const RESEARCH_URL = "{{ url_for('leads.research_lead', _external=True) }}";
   const CSRF_TOKEN   = document.querySelector('meta[name="csrf-token"]').content;
 </script>
 <script src="{{ url_for('static', filename='js/agent_autofill.js') }}"></script>
