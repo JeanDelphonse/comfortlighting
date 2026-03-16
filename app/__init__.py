@@ -21,25 +21,35 @@ def _configure_logging(app: Flask) -> None:
 
     fmt = logging.Formatter('[%(asctime)s] %(levelname)s in %(module)s: %(message)s')
 
-    handler = RotatingFileHandler(
+    # error.log — ERROR and above, always on
+    error_handler = RotatingFileHandler(
         os.path.join(logs_dir, 'error.log'),
         maxBytes=5 * 1024 * 1024,  # 5 MB
         backupCount=5,
         encoding='utf-8',
     )
-    handler.setLevel(logging.ERROR)
-    handler.setFormatter(fmt)
-    app.logger.addHandler(handler)
+    error_handler.setLevel(logging.ERROR)
+    error_handler.setFormatter(fmt)
+    app.logger.addHandler(error_handler)
 
-    # In debug mode also stream INFO+ to the console so research logs are visible
+    # research.log — INFO and above, always on (used to debug agent research)
+    research_handler = RotatingFileHandler(
+        os.path.join(logs_dir, 'research.log'),
+        maxBytes=5 * 1024 * 1024,  # 5 MB
+        backupCount=3,
+        encoding='utf-8',
+    )
+    research_handler.setLevel(logging.INFO)
+    research_handler.setFormatter(fmt)
+    app.logger.addHandler(research_handler)
+    app.logger.setLevel(logging.INFO)
+
+    # In debug mode also stream INFO+ to the console
     if app.debug:
         console = logging.StreamHandler()
         console.setLevel(logging.INFO)
         console.setFormatter(fmt)
         app.logger.addHandler(console)
-        app.logger.setLevel(logging.INFO)
-    else:
-        app.logger.setLevel(logging.ERROR)
 
 
 def create_app() -> Flask:
