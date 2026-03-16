@@ -37,4 +37,4 @@ INSERT IGNORE INTO system_config (config_key, config_value, updated_by) VALUES
     ('agent_cost_per_sqft',     '3.50',  'migration'),
     ('agent_rebate_factor',     '0.15',  'migration'),
     ('agent_utility_rate',      '0.13',  'migration'),
-    ('agent_daily_token_budget','500000','migration');
+    ('agent_daily_token_budget','2000000','migration');
