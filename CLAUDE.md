@@ -7,7 +7,7 @@ Flask web application for ComfortLighting.net. A lead inventory and sales pipeli
 - **Backend:** Python 3.11, Flask 3.x, SQLAlchemy + PyMySQL, Flask-Login, Flask-WTF (CSRF), Flask-Limiter
 - **LLM:** Anthropic Claude API (`anthropic` SDK) — model `claude-sonnet-4-6`
 - **PDF:** ReportLab (pure Python, GoDaddy-safe — do NOT switch to WeasyPrint without verifying GTK availability)
-- **DB:** MySQL (cPanel localhost), schema in `sql/schema.sql`
+- **DB:** MySQL (cPanel localhost), schema in `sql/schema.sql`. SQLite supported for local dev (`sqlite:///comfortlighting.db`)
 - **Deployment:** GoDaddy cPanel, Passenger WSGI entry point `passenger_wsgi.py`
 - **Frontend:** Bootstrap 5.3, Bootstrap Icons, vanilla JS (no framework)
 
@@ -22,6 +22,7 @@ comfortlighting/
 │   └── receipts/{lead_id}/    # Files named {entry_id}_{timestamp}.{ext}
 ├── app/
 │   ├── __init__.py            # create_app() factory, blueprints, context_processor (pending_expense_count)
+│   │                          # Logging: error.log (ERROR+), research.log (INFO+), console in debug mode
 │   ├── extensions.py          # Flask-Limiter singleton (avoids circular imports)
 │   ├── decorators.py          # Shared decorators: admin_required
 │   ├── models.py              # SQLAlchemy models: User, Lead, Proposal, Contract,
@@ -31,6 +32,7 @@ comfortlighting/
 │   ├── auth/routes.py         # /login, /logout
 │   ├── leads/routes.py        # /, /leads/add, /leads/<id>, /leads/<id>/edit, /leads/<id>/delete
 │   │                          # /leads/<id>/wip (PATCH) — toggle WIP via progress field
+│   │                          # /leads/research (POST) — AI agent research endpoint
 │   │                          # validate_lead() handles assigned_user_id server-side
 │   ├── admin/routes.py        # /admin/users, /admin/clause-templates, /admin/clause-templates/<key>
 │   │                          # /admin/expenses, /admin/expenses/approve|reject|reimburse|export
@@ -55,8 +57,9 @@ comfortlighting/
 │   ├── agent/                     # AI Agent Lead Research package
 │   │   ├── __init__.py
 │   │   ├── research_agent.py      # run_research_agent() — Claude tool-use agentic loop
+│   │   │                          # MAX_ITERATIONS=6, TIMEOUT_SECS=25 (tuned for GoDaddy shared hosting)
 │   │   ├── prompts/
-│   │   │   └── research_system_prompt.txt  # Agent system prompt + JSON schema
+│   │   │   └── research_system_prompt.txt  # Agent system prompt — strict 3 tool call budget
 │   │   ├── schemas/
 │   │   │   └── lead_research_result.py     # FieldResult, LeadResearchResult dataclasses
 │   │   └── tools/
@@ -64,17 +67,20 @@ comfortlighting/
 │   │       ├── fetch_url.py       # URL fetcher with BeautifulSoup text extraction
 │   │       └── calculate_roi.py   # LED retrofit ROI calculator (loads params from system_config)
 │   ├── static/
+│   │   ├── .htaccess              # Require all granted — fixes Apache permission error on GoDaddy
 │   │   ├── css/app.css            # Includes .confidence-badge, .confidence-high/medium/low styles
 │   │   └── js/
 │   │       ├── app.js
 │   │       ├── activity_form.js   # Category AJAX, mileage calc, conditional fields
 │   │       ├── wip_board.js       # WIP drag-and-drop (native HTML5 events, not SortableJS)
+│   │       │                      # Auto-reloads page 6s after drop (undo cancels reload)
 │   │       └── agent_autofill.js  # Research button, progress bar, field population, badges
 │   └── templates/
 │       ├── base.html              # Includes Expenses nav link + pending badge for admin
 │       ├── auth/login.html
 │       ├── leads/index.html, add.html, edit.html, view.html, _form.html
-│       │                          # add.html has research bar + agent_autofill.js
+│       │                          # add.html: RESEARCH_URL uses url_for(_external=True) for absolute URL
+│       │                          # add.html: Research button disabled if SERPER_API_KEY not set
 │       │                          # _form.html has data-agent-field attributes on wrappers
 │       ├── activities/form.html, log.html, view_entry.html
 │       └── admin/users.html, clause_templates.html, expense_queue.html, research_log.html
@@ -88,11 +94,12 @@ comfortlighting/
 │   ├── migration_system_config.sql        # CREATE system_config; seed IRS mileage rate
 │   ├── migration_create_lead_activities.sql  # CREATE expense_categories + lead_activities; seed categories
 │   └── migration_agent_research.sql       # CREATE agent_research_log; ALTER leads ADD agent_research_run_id;
-│                                          # seed 8 ROI config params into system_config
+│                                          # seed 8 ROI config params + agent_daily_token_budget=2000000
 ├── docs/
 │   └── *.docx / *.xlsx                    # PRD documents and seed data spreadsheet
 └── logs/
-    └── error.log                          # RotatingFileHandler, 5 MB × 5 backups, ERROR level only
+    ├── error.log                          # RotatingFileHandler, 5 MB × 5 backups, ERROR level only
+    └── research.log                       # RotatingFileHandler, 5 MB × 3 backups, INFO+ always on
 ```
 
 ## Running Locally
@@ -102,24 +109,48 @@ cp .env.example .env   # fill in DATABASE_URL, SECRET_KEY, ANTHROPIC_API_KEY
 python app.py
 ```
 
+**SQLite for local dev** (no MySQL needed):
+```
+DATABASE_URL=sqlite:///comfortlighting.db
+```
+Then create tables:
+```bash
+python -c "from app import create_app, db; app=create_app(); app.app_context().push(); db.create_all()"
+```
+Create admin user:
+```bash
+python -c "
+from app import create_app, db
+from app.models import User, SystemConfig
+app = create_app()
+with app.app_context():
+    u = User(username='admin', email='admin@example.com', role='admin', active=True)
+    u.set_password('admin123')
+    db.session.add(u)
+    db.session.add(SystemConfig(config_key='irs_mileage_rate', config_value='0.67'))
+    db.session.commit()
+"
+```
+
 ## Environment Variables (`.env`)
 | Variable | Required | Description |
 |---|---|---|
 | `SECRET_KEY` | Yes | Flask session signing key |
-| `DATABASE_URL` | Yes | `mysql+pymysql://user:pass@localhost/comfortlighting` |
+| `DATABASE_URL` | Yes | `mysql+pymysql://user:pass@localhost/comfortlighting` or `sqlite:///comfortlighting.db` |
 | `ANTHROPIC_API_KEY` | Yes | Anthropic API key for proposal/contract/agent research |
-| `SERPER_API_KEY` | No | Serper.dev API key — research feature disabled if absent |
-| `AGENT_DAILY_TOKEN_BUDGET` | No | Max Claude tokens/day for research agent (default: 500000) |
+| `SERPER_API_KEY` | No | Serper.dev API key — Research button disabled if absent |
+| `AGENT_DAILY_TOKEN_BUDGET` | No | Not used directly — budget stored in `system_config` table (default: 2000000) |
 
 ## Database
-All schema in `sql/schema.sql`. Tables: `users`, `leads`, `proposals`, `contracts`, `contract_versions`, `clause_templates`, `system_config`, `expense_categories`, `lead_activities`.
+All schema in `sql/schema.sql`. Tables: `users`, `leads`, `proposals`, `contracts`, `contract_versions`, `clause_templates`, `system_config`, `expense_categories`, `lead_activities`, `agent_research_log`.
 
 **On first deploy (fresh install):**
 1. Run `schema.sql` in phpMyAdmin
 2. Run `seed_clause_templates.sql` to load 15 contract clause templates
 3. Run `migration_create_lead_activities.sql` to seed 9 expense categories + 34 subcategories
-4. Run `python set_admin_password.py admin <password>` to set admin password
-5. Optionally run `seed_leads.sql` for sample lead data
+4. Run `migration_agent_research.sql` to create agent_research_log and seed ROI + token budget config
+5. Run `python set_admin_password.py admin <password>` to set admin password
+6. Optionally run `seed_leads.sql` for sample lead data
 
 **On upgrade (existing DB — run in order):**
 1. `migrate_add_legal_role.sql` — add legal role to users (contract feature)
@@ -128,6 +159,11 @@ All schema in `sql/schema.sql`. Tables: `users`, `leads`, `proposals`, `contract
 4. `migration_system_config.sql` — create system_config, seed IRS mileage rate
 5. `migration_create_lead_activities.sql` — create expense_categories + lead_activities, seed categories
 6. `migration_agent_research.sql` — create agent_research_log, add agent_research_run_id to leads, seed ROI config params
+
+**Adjusting agent daily token budget** (if "Daily token budget exceeded" error):
+```sql
+UPDATE system_config SET config_value = '2000000' WHERE config_key = 'agent_daily_token_budget';
+```
 
 ## User Roles
 | Role | Access |
@@ -141,9 +177,9 @@ All schema in `sql/schema.sql`. Tables: `users`, `leads`, `proposals`, `contract
 ### API URLs in JavaScript — CRITICAL
 All fetch() URLs MUST be generated via Jinja2 `url_for()`, never hardcoded. The app is deployed at a subdirectory (`/comfortlighting/`) on the server; hardcoded paths like `/proposals/generate` will resolve to the server root and 404.
 
-**Correct pattern (URL known at page-load, no path params):**
+**For API endpoints called via fetch() — use `_external=True` for absolute URL:**
 ```javascript
-const URL_GENERATE = "{{ url_for('proposals.generate') }}";
+const RESEARCH_URL = "{{ url_for('leads.research_lead', _external=True) }}";
 ```
 
 **For routes with path parameters — use a data attribute on a DOM element:**
@@ -178,6 +214,7 @@ function urlSave(id) { return BASE + '/' + id + '/save'; }
 - Drag from lead list → WIP: sets `progress = 'In Progress'`, `wip = 1`, `wip_since = now()`
 - Drag from WIP → lead list (or × button): clears `progress`, `wip = 0`, `wip_since = None`
 - `wip_board.js` uses native HTML5 drag events (not SortableJS) — required because WIP is a `<div>` grid and the lead list is a `<tbody>`, which are incompatible container types for SortableJS physical element movement
+- **Auto-reload:** page reloads 6 seconds after a successful drop (undo cancels the reload timer)
 
 ### Blueprint URL Prefixes
 | Blueprint | Prefix |
@@ -198,8 +235,12 @@ Flask-Limiter singleton defined in `app/extensions.py` (not `app/__init__.py`) t
 - Contracts: 5 LLM calls/hour per user
 - Agent Research: 20 calls/hour per user (plus daily token budget check via `system_config`)
 
-### Error Logging
-All unhandled exceptions (non-HTTP) are logged to `logs/error.log` and return `'An internal error occurred.', 500`. HTTP exceptions (404, 403, etc.) pass through Flask's default handlers. Passenger requires a complete HTTP response on every request — never re-raise inside `@app.errorhandler`.
+### Logging
+Two log files, always active regardless of debug mode:
+- `logs/error.log` — ERROR+ only, 5 MB × 5 backups
+- `logs/research.log` — INFO+ for all app logger calls, 5 MB × 3 backups (captures full agent research traces)
+
+In debug mode, INFO+ also streams to console.
 
 ### PDF Generation
 Use **ReportLab** only. Do not introduce WeasyPrint (requires GTK system libraries not available on GoDaddy shared hosting). Brand colors: Proposal = `#1F4E79` (blue), Contract = `#1A2F4A` (navy).
@@ -215,7 +256,7 @@ Use **ReportLab** only. Do not introduce WeasyPrint (requires GTK system librari
 `pending_expense_count` is injected into every template for authenticated admins via a context processor in `app/__init__.py`. Used to show the badge on the Expenses nav link. Queries `LeadActivity.status == 'Submitted'` count.
 
 ### Deployment Zip
-Rebuild `comfortlighting_deploy.zip` after any change. Exclude: `__pycache__/`, `*.pyc`, `*.pyo`, `.env`, `.git/`. Include `logs/.gitkeep` and `uploads/.gitkeep`.
+Rebuild `comfortlighting_deploy.zip` after any change. Exclude: `__pycache__/`, `*.pyc`, `*.pyo`, `.env`, `.git/`. Include `logs/.gitkeep`, `logs/research.log` (empty), and `uploads/.gitkeep`.
 
 ```bash
 python -c "
@@ -235,6 +276,7 @@ with zipfile.ZipFile('comfortlighting_deploy.zip','w',zipfile.ZIP_DEFLATED) as z
     [zf.write(p) for p in include if os.path.exists(p)]
     [zf.write(p) for p in app_files]
     zf.writestr('logs/.gitkeep','')
+    zf.writestr('logs/research.log','')
     zf.writestr('uploads/.gitkeep','')
 "
 ```
@@ -255,7 +297,7 @@ with zipfile.ZipFile('comfortlighting_deploy.zip','w',zipfile.ZIP_DEFLATED) as z
 - Drag a table row into the WIP section → sets `progress = 'In Progress'`
 - Drag a WIP card into the table / click × → clears `progress`, removes from WIP
 - Uses native HTML5 drag events; WIP URL generated via `data-toggle-url` attribute (not hardcoded)
-- Toast notifications with 6-second undo window
+- Toast notifications with 6-second undo window; page auto-reloads after undo window expires
 
 ### Lead User Assignment
 - `assigned_user_id` nullable FK on `leads` → `users.id` (ON DELETE SET NULL)
@@ -306,17 +348,20 @@ with zipfile.ZipFile('comfortlighting_deploy.zip','w',zipfile.ZIP_DEFLATED) as z
 
 ### AI Agent Lead Research (`/leads/research` — Add Lead page)
 - Research bar card at top of Add Lead form: company name + optional city/state → Research button
-- Calls `POST /leads/research` (rate-limited 20/hour; daily token budget from `system_config`)
+- Button is disabled (with tooltip) if `SERPER_API_KEY` is not set in environment
+- Calls `POST /leads/research` (rate-limited 20/hour; daily token budget from `system_config` key `agent_daily_token_budget`, default 2000000)
 - Backend: `app/agent/research_agent.py` — Claude `claude-sonnet-4-6` agentic tool-use loop
   - Tools: `web_search` (Serper API), `fetch_url` (BeautifulSoup), `calculate_roi` (loads params from DB)
-  - Loops up to 20 iterations or 55-second timeout; writes audit record to `agent_research_log` table
+  - **MAX_ITERATIONS=6, TIMEOUT_SECS=25** — tuned for GoDaddy shared hosting (~30s request kill limit)
+  - System prompt enforces **3 tool call max** then immediate JSON output (prevents timeout)
+  - Writes audit record to `agent_research_log` table on every run
 - Returns JSON with `fields` (10 form-fill keys), `extended` (8 extra intel items), `meta`, `run_id`
 - Frontend (`agent_autofill.js`): populates form fields, renders confidence badges (High/Medium/Low)
 - Confidence badge styles in `app.css`: `.confidence-high/medium/low/not-found`, `.agent-low-confidence`
 - `agent_research_run_id` hidden field links the saved lead to the research run for audit
 - Research Summary panel shows: contact title, employee count, locations, kWh savings, payback, website, LinkedIn, news
 - Clear / Re-Research buttons on the form
-- Research feature disabled gracefully if `SERPER_API_KEY` not set
+- All research activity traced to `logs/research.log` (INFO level, always on in prod)
 - Admin audit log at `/admin/research-log` (paginated, filterable by company/user/date)
 - Detail view at `/admin/research-log/<run_id>` shows raw JSON response
 
@@ -328,9 +373,13 @@ with zipfile.ZipFile('comfortlighting_deploy.zip','w',zipfile.ZIP_DEFLATED) as z
 New Lead → Call Scheduled → Contacted → Quote Requested → Follow-Up → Proposal Sent → Negotiation → Contract → Contract Sent → Closed Won / Closed Lost / On Hold
 
 ## Known Deployment Notes (GoDaddy cPanel)
-- Passenger strips the `/comfortlighting/` URL prefix before passing to Flask — this is why all JS URLs must use `url_for` or data attributes
+- App lives at `https://colloquyai.com/comfortlighting/` — Passenger strips the `/comfortlighting/` prefix before passing to Flask
+- All JS fetch() URLs must use `url_for(_external=True)` to generate absolute URLs; relative paths like `/leads/research` resolve to the server root and miss the app
 - Static files: `.htaccess` rewrites `^static/(.*)$` → `app/static/$1` so Apache serves them directly (bypasses Passenger)
+- **`app/static/.htaccess`** must exist with `Require all granted` — Apache checks for this file in every directory it serves from; without it, static assets (JS/CSS) return 403 and the page breaks silently
+- After deploying zip, set directory permissions to **755** and file permissions to **644** on `app/static/` and all subdirectories/files via cPanel File Manager
 - MySQL pool: `pool_pre_ping=True`, `pool_recycle=280` to handle cold-start stale connections
 - After deploy, restart the app in cPanel Python App Manager
-- `pip install anthropic reportlab Flask-Limiter requests beautifulsoup4` required in cPanel virtual environment
+- `pip install anthropic reportlab Flask-Limiter requests beautifulsoup4 pymysql` required in cPanel virtual environment
 - `uploads/` directory must be writable by the Passenger process — created automatically on first receipt save via `os.makedirs(exist_ok=True)`
+- Agent research runs ~10–15s on GoDaddy; if "Daily token budget exceeded" appears, update `system_config` via phpMyAdmin
