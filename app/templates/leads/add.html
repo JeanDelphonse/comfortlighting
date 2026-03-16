@@ -98,4 +98,18 @@
   const CSRF_TOKEN   = document.querySelector('meta[name="csrf-token"]').content;
 </script>
 <script src="{{ url_for('static', filename='js/agent_autofill.js') }}"></script>
+
+<!-- TEMP DEBUG — remove after diagnosing research issue -->
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    var dbg = document.createElement('div');
+    dbg.style = 'position:fixed;bottom:0;left:0;right:0;background:#222;color:#0f0;font:12px monospace;padding:6px 10px;z-index:9999';
+    var btn = document.getElementById('research-btn');
+    dbg.innerHTML =
+      'RESEARCH_URL: <b>' + (typeof RESEARCH_URL !== 'undefined' ? RESEARCH_URL : 'UNDEFINED') + '</b> | ' +
+      'btn disabled: <b>' + (btn ? btn.disabled : 'btn not found') + '</b> | ' +
+      'autofill.js loaded: <b>' + (typeof runResearch !== 'undefined' ? 'YES' : 'NO — JS not loaded') + '</b>';
+    document.body.appendChild(dbg);
+  });
+</script>
 {% endblock %}
