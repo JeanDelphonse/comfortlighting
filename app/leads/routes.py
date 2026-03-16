@@ -310,10 +310,12 @@ def add():
             flash('Lead created successfully.', 'success')
             return redirect(url_for('leads.view', lead_id=lead.id))
 
+    import os
     return render_template(
         'leads/add.html',
         form_data=form_data,
         errors=errors,
+        research_enabled=bool(os.getenv('SERPER_API_KEY', '').strip()),
         **lead_context(),
     )
 
@@ -486,14 +488,26 @@ def toggle_wip(lead_id: int):
 @limiter.limit('20 per hour')
 def research_lead():
     """Run the AI research agent for a company name and return pre-fill data."""
+    import os
+    serper_key    = os.getenv('SERPER_API_KEY', '').strip()
+    anthropic_key = current_app.config.get('ANTHROPIC_API_KEY', '').strip()
+    current_app.logger.info('research_lead: SERPER_API_KEY present=%s, ANTHROPIC_API_KEY present=%s',
+                            bool(serper_key), bool(anthropic_key))
+
+    if not serper_key:
+        current_app.logger.info('research_lead: aborting — SERPER_API_KEY not set')
+        return jsonify({'error': 'Research is not available: SERPER_API_KEY is not configured.'}), 503
+
     data         = request.get_json(silent=True) or {}
     company_name = (data.get('company_name') or '').strip()
     location_hint= (data.get('location_hint') or '').strip()
+    current_app.logger.info('research_lead: company_name=%r location_hint=%r', company_name, location_hint)
 
     if not company_name:
         return jsonify({'error': 'Company name is required.'}), 400
 
     run_id = str(uuid.uuid4())
+    current_app.logger.info('research_lead: starting run_id=%s', run_id)
 
     try:
         from ..agent.research_agent import run_research_agent
@@ -503,8 +517,12 @@ def research_lead():
             run_id        = run_id,
             user_id       = current_user.id,
         )
+        current_app.logger.info('research_lead: completed run_id=%s status=%s fields_populated=%s tokens=%s duration=%ss',
+                                run_id, result.status,
+                                sum(1 for f in result.to_form_dict().values() if f.get('value')),
+                                result.tokens_used, result.run_duration_sec)
     except Exception as exc:
-        current_app.logger.error('research_lead failed [%s]: %s', run_id, exc)
+        current_app.logger.error('research_lead failed [%s]: %s', run_id, exc, exc_info=True)
         return jsonify({'error': 'Research failed. Please try again.'}), 500
 
     return jsonify({

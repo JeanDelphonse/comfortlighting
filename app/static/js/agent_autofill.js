@@ -272,11 +272,13 @@
 
         document.getElementById('research-clear-btn').style.display = '';
 
-        // Warning for timeout/partial
+        // Warning for timeout/partial/empty
         if (data.status === 'timeout') {
           showAlert('Research timed out — partial results shown. Fields left blank need manual entry.', 'warning');
         } else if (data.status === 'error') {
           showAlert((data.meta && data.meta.error_message) || 'Research encountered an error.', 'danger');
+        } else if (data.status === 'partial' || (data.meta && data.meta.fields_populated === 0)) {
+          showAlert('Research completed but no data was found. Try a more specific company name or fill fields manually.', 'warning');
         }
       })
       .catch(function (err) {

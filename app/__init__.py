@@ -19,6 +19,8 @@ def _configure_logging(app: Flask) -> None:
     logs_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'logs')
     os.makedirs(logs_dir, exist_ok=True)
 
+    fmt = logging.Formatter('[%(asctime)s] %(levelname)s in %(module)s: %(message)s')
+
     handler = RotatingFileHandler(
         os.path.join(logs_dir, 'error.log'),
         maxBytes=5 * 1024 * 1024,  # 5 MB
@@ -26,11 +28,18 @@ def _configure_logging(app: Flask) -> None:
         encoding='utf-8',
     )
     handler.setLevel(logging.ERROR)
-    handler.setFormatter(logging.Formatter(
-        '[%(asctime)s] %(levelname)s in %(module)s: %(message)s'
-    ))
-    app.logger.setLevel(logging.ERROR)
+    handler.setFormatter(fmt)
     app.logger.addHandler(handler)
+
+    # In debug mode also stream INFO+ to the console so research logs are visible
+    if app.debug:
+        console = logging.StreamHandler()
+        console.setLevel(logging.INFO)
+        console.setFormatter(fmt)
+        app.logger.addHandler(console)
+        app.logger.setLevel(logging.INFO)
+    else:
+        app.logger.setLevel(logging.ERROR)
 
 
 def create_app() -> Flask:

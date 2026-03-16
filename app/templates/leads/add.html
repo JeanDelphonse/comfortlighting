@@ -27,7 +27,8 @@
              placeholder="Company name (e.g. Sysco Foods San Jose)">
       <input type="text" id="research-location" class="form-control" style="max-width:200px"
              placeholder="City, State (optional)">
-      <button id="research-btn" class="btn btn-primary" type="button">
+      <button id="research-btn" class="btn btn-primary" type="button"
+              {% if not research_enabled %}disabled title="Research unavailable: SERPER_API_KEY not configured"{% endif %}>
         <i class="bi bi-search me-1"></i>Research
       </button>
       <button id="research-clear-btn" class="btn btn-outline-secondary" type="button"

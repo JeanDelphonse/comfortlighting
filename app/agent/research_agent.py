@@ -214,6 +214,8 @@ def run_research_agent(company_name: str, location_hint: str,
     status        = 'success'
     error_message = None
 
+    current_app.logger.info('[agent %s] starting research for %r (location=%r)', run_id, company_name, location_hint)
+
     # ── Daily token budget check ───────────────────────────────────────────────
     try:
         budget = int(SystemConfig.get('agent_daily_token_budget', '500000'))
@@ -230,7 +232,9 @@ def run_research_agent(company_name: str, location_hint: str,
     except Exception:
         db.session.rollback()
         today_tokens = 0   # table may not exist yet; skip budget check
+    current_app.logger.info('[agent %s] budget=%d today_tokens=%d', run_id, budget, today_tokens)
     if today_tokens >= budget:
+        current_app.logger.info('[agent %s] daily budget exceeded — aborting', run_id)
         result = _not_found_result(
             run_id, 'error',
             'Daily token budget exceeded. Try again tomorrow.',
@@ -241,6 +245,8 @@ def run_research_agent(company_name: str, location_hint: str,
 
     # ── Build client and messages ──────────────────────────────────────────────
     api_key = current_app.config.get('ANTHROPIC_API_KEY') or os.getenv('ANTHROPIC_API_KEY', '')
+    current_app.logger.info('[agent %s] ANTHROPIC_API_KEY present=%s (len=%d)',
+                            run_id, bool(api_key), len(api_key))
     client  = anthropic.Anthropic(api_key=api_key)
 
     query_str = company_name
@@ -263,11 +269,14 @@ def run_research_agent(company_name: str, location_hint: str,
 
     # ── Agentic loop ───────────────────────────────────────────────────────────
     try:
-        for _ in range(MAX_ITERATIONS):
-            if time.time() - start_time > TIMEOUT_SECS:
+        for iteration in range(MAX_ITERATIONS):
+            elapsed = time.time() - start_time
+            if elapsed > TIMEOUT_SECS:
+                current_app.logger.info('[agent %s] timeout after %.1fs at iteration %d', run_id, elapsed, iteration)
                 status = 'timeout'
                 break
 
+            current_app.logger.info('[agent %s] iteration %d — calling Claude (tokens_so_far=%d)', run_id, iteration, tokens_used)
             response = client.messages.create(
                 model      = 'claude-sonnet-4-6',
                 max_tokens = 4096,
@@ -277,11 +286,14 @@ def run_research_agent(company_name: str, location_hint: str,
             )
 
             tokens_used += response.usage.input_tokens + response.usage.output_tokens
+            current_app.logger.info('[agent %s] iteration %d — stop_reason=%s tokens_used=%d',
+                                    run_id, iteration, response.stop_reason, tokens_used)
 
             if response.stop_reason == 'end_turn':
                 for block in response.content:
                     if hasattr(block, 'text') and block.text:
                         final_data = _parse_json(block.text)
+                current_app.logger.info('[agent %s] end_turn — final_data keys=%s', run_id, list(final_data.keys()))
                 break
 
             if response.stop_reason == 'tool_use':
@@ -290,7 +302,11 @@ def run_research_agent(company_name: str, location_hint: str,
 
                 for block in response.content:
                     if block.type == 'tool_use':
+                        current_app.logger.info('[agent %s] tool_call: %s(%s)', run_id, block.name,
+                                                str(block.input)[:120])
                         output = _dispatch(block.name, block.input)
+                        current_app.logger.info('[agent %s] tool_result: %s → %s', run_id, block.name,
+                                                output[:200])
                         tool_results.append({
                             'type':        'tool_result',
                             'tool_use_id': block.id,
@@ -303,16 +319,17 @@ def run_research_agent(company_name: str, location_hint: str,
 
                 messages.append({'role': 'user', 'content': tool_results})
             else:
-                # Unexpected stop reason — exit loop
+                current_app.logger.info('[agent %s] unexpected stop_reason=%s — exiting loop', run_id, response.stop_reason)
                 break
 
     except anthropic.APITimeoutError:
         status        = 'timeout'
         error_message = 'Anthropic API timed out.'
+        current_app.logger.error('[agent %s] Anthropic API timeout', run_id)
     except Exception as exc:
         status        = 'error'
         error_message = str(exc)[:500]
-        current_app.logger.error('Agent research error [%s] %s: %s', run_id, company_name, exc)
+        current_app.logger.error('[agent %s] %s: %s', run_id, company_name, exc, exc_info=True)
 
     duration = time.time() - start_time
 
