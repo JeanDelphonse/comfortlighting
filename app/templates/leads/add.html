@@ -108,7 +108,7 @@
     dbg.innerHTML =
       'RESEARCH_URL: <b>' + (typeof RESEARCH_URL !== 'undefined' ? RESEARCH_URL : 'UNDEFINED') + '</b> | ' +
       'btn disabled: <b>' + (btn ? btn.disabled : 'btn not found') + '</b> | ' +
-      'autofill.js loaded: <b>' + (typeof runResearch !== 'undefined' ? 'YES' : 'NO — JS not loaded') + '</b>';
+      'autofill.js loaded: <b>' + (window._autofillLoaded ? 'YES' : 'NO — JS not loaded') + '</b>';
     document.body.appendChild(dbg);
   });
 </script>

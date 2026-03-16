@@ -333,4 +333,5 @@
     }
   });
 
+  window._autofillLoaded = true;
 })();
