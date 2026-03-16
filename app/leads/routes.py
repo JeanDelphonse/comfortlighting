@@ -1,6 +1,7 @@
 import csv
 import io
 import re
+import sys
 import uuid
 from datetime import datetime
 
@@ -489,24 +490,32 @@ def toggle_wip(lead_id: int):
 def research_lead():
     """Run the AI research agent for a company name and return pre-fill data."""
     import os
+    print('[research_lead] route hit', file=sys.stderr, flush=True)
+
     serper_key    = os.getenv('SERPER_API_KEY', '').strip()
     anthropic_key = current_app.config.get('ANTHROPIC_API_KEY', '').strip()
+    print(f'[research_lead] SERPER_API_KEY present={bool(serper_key)} ANTHROPIC_API_KEY present={bool(anthropic_key)} len={len(anthropic_key)}',
+          file=sys.stderr, flush=True)
     current_app.logger.info('research_lead: SERPER_API_KEY present=%s, ANTHROPIC_API_KEY present=%s',
                             bool(serper_key), bool(anthropic_key))
 
     if not serper_key:
+        print('[research_lead] aborting — SERPER_API_KEY not set', file=sys.stderr, flush=True)
         current_app.logger.info('research_lead: aborting — SERPER_API_KEY not set')
         return jsonify({'error': 'Research is not available: SERPER_API_KEY is not configured.'}), 503
 
     data         = request.get_json(silent=True) or {}
     company_name = (data.get('company_name') or '').strip()
     location_hint= (data.get('location_hint') or '').strip()
+    print(f'[research_lead] company_name={company_name!r} location_hint={location_hint!r}',
+          file=sys.stderr, flush=True)
     current_app.logger.info('research_lead: company_name=%r location_hint=%r', company_name, location_hint)
 
     if not company_name:
         return jsonify({'error': 'Company name is required.'}), 400
 
     run_id = str(uuid.uuid4())
+    print(f'[research_lead] starting run_id={run_id}', file=sys.stderr, flush=True)
     current_app.logger.info('research_lead: starting run_id=%s', run_id)
 
     try:
@@ -517,11 +526,13 @@ def research_lead():
             run_id        = run_id,
             user_id       = current_user.id,
         )
+        populated = sum(1 for f in result.to_form_dict().values() if f.get('value'))
+        print(f'[research_lead] completed run_id={run_id} status={result.status} fields={populated} tokens={result.tokens_used} duration={result.run_duration_sec}s',
+              file=sys.stderr, flush=True)
         current_app.logger.info('research_lead: completed run_id=%s status=%s fields_populated=%s tokens=%s duration=%ss',
-                                run_id, result.status,
-                                sum(1 for f in result.to_form_dict().values() if f.get('value')),
-                                result.tokens_used, result.run_duration_sec)
+                                run_id, result.status, populated, result.tokens_used, result.run_duration_sec)
     except Exception as exc:
+        print(f'[research_lead] EXCEPTION run_id={run_id}: {exc}', file=sys.stderr, flush=True)
         current_app.logger.error('research_lead failed [%s]: %s', run_id, exc, exc_info=True)
         return jsonify({'error': 'Research failed. Please try again.'}), 500
 
