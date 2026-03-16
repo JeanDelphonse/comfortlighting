@@ -93,8 +93,8 @@ TOOLS = [
     },
 ]
 
-MAX_ITERATIONS = 20
-TIMEOUT_SECS   = 55   # Leave 5 s headroom under Flask's 60 s limit
+MAX_ITERATIONS = 10
+TIMEOUT_SECS   = 25   # GoDaddy Passenger kills requests around 30 s
 
 
 # ── System prompt ──────────────────────────────────────────────────────────────
