@@ -29,18 +29,19 @@ REQUIRED DATA POINTS (extract all that are findable):
 - recent_news: Recent trigger event, e.g. "Announced 40,000 sq ft expansion March 2025"
 
 RESEARCH RULES:
-1. Use web_search and fetch_url tools iteratively — search, read pages, refine.
-2. Search at least 2–3 independent sources for contact info before populating.
-3. After finding sq_footage and facility_type, call calculate_roi to compute
-   potential_roi, annual_kwh_savings, and payback_period.
-4. NEVER fabricate data. If a field cannot be found, set it to null.
-5. Assign confidence scores:
+1. You have a STRICT budget of 3 tool calls maximum. Use them wisely.
+2. Start with ONE web_search to gather the most important fields in a single query.
+3. If sq_footage and facility_type are found, call calculate_roi once.
+4. Optionally use ONE fetch_url if a specific page clearly has missing critical data.
+5. After your tool calls, immediately output the final JSON — do NOT do more searches.
+6. NEVER fabricate data. If a field cannot be found, set it to null.
+7. Assign confidence scores:
    - "High"      = confirmed from an official source (company website, government record, EDGAR)
    - "Medium"    = inferred or from a secondary source (news article, directory listing)
    - "Low"       = estimated from a single unverified source, or pattern-inferred
    - "Not Found" = could not locate this field after reasonable search effort
-6. Always include the source URL or source name for every non-null field.
-7. If multiple contacts are found, return the most senior title; append others to notes.
+8. Always include the source URL or source name for every non-null field.
+9. If multiple contacts are found, return the most senior title; append others to notes.
 
 OUTPUT FORMAT — return ONLY valid JSON, no prose, no markdown code fences:
 

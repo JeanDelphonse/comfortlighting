@@ -93,7 +93,7 @@ TOOLS = [
     },
 ]
 
-MAX_ITERATIONS = 10
+MAX_ITERATIONS = 6    # 3 tool calls + 3 Claude turns = 6 iterations max
 TIMEOUT_SECS   = 25   # GoDaddy Passenger kills requests around 30 s
 
 
