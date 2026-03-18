@@ -41,11 +41,11 @@
 
           {# ── Layer 1: Future arrows (dashed gray, bottom layer) ─────────── #}
           <g class="layer-future">
-            {% for idx in range(display_idx, (pipeline_stages|length) - 1) %}
-              {% if idx < 0 %}{% continue %}{% endif %}
+            {% set start_idx = display_idx if display_idx >= 0 else 0 %}
+            {% for idx in range(start_idx, (pipeline_stages|length) - 1) %}
               {% set xi = 50 + idx * 100 %}
               {% set xo = 50 + (idx + 1) * 100 %}
-              {# Don't draw future arrows from Closed Won (9) or Closed Lost (10) #}
+              {# Don't draw future arrows from terminal nodes (Closed Won=9, Closed Lost=10) #}
               {% if idx < 9 %}
               <line x1="{{ xi + NR + 2 }}" y1="{{ AY }}" x2="{{ xo - NR - 10 }}" y2="{{ AY }}"
                     class="arrow-future" stroke="#CED4DA" stroke-width="2" stroke-dasharray="6,4"/>
