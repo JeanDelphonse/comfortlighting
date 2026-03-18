@@ -1,0 +1,1155 @@
+
+
+
+COMFORTLIGHTING.NET
+Lead Workflow Progress Diagram
+Product Requirements Document  |  v1.0
+Date: March 18, 2026
+Stack: Python 3.11 + Flask + SQLAlchemy + MySQL  |  GoDaddy cPanel (Passenger WSGI)
+Frontend: Jinja2  |  Bootstrap 5  |  SVG-rendered pipeline diagram  |  Vanilla JS
+
+
+
+1. Overview
+This document defines the requirements for a Lead Workflow Progress Diagram displayed on the Lead Detail page of the ComfortLighting.net Lead Inventory System. The diagram provides an at-a-glance visual representation of where a lead currently sits in the 12-stage sales pipeline — from New Lead through to Closed Won, Closed Lost, or On Hold.
+The diagram is rendered as an interactive SVG pipeline stepper. The current stage is highlighted. Completed stages are visually checked off. Terminal stages (Closed Won, Closed Lost) and the special On Hold stage have distinct visual treatments. Clicking any stage node on the diagram advances or retreats the lead to that stage, updating the PROGRESS field in the database without navigating away from the Lead Detail page.
+
+2. Pipeline Stage Definitions
+The ComfortLighting sales pipeline consists of 12 named stages divided into five groups. The table below defines each stage, its group, the entry criteria, and exit criteria.
+
+#
+Stage
+Group
+Icon
+Entry Criteria
+Exit Criteria
+01
+New Lead
+Entry
+🆕
+Lead record created (manually or via AI Agent)
+Rep schedules first call or makes first contact
+02
+Call Scheduled
+Outreach
+📅
+First call or meeting booked in calendar
+Call completed; rep logs outcome
+03
+Contacted
+Outreach
+📞
+Rep has spoken with or emailed the decision-maker
+Prospect requests a quote or shows buying interest
+04
+Quote Requested
+Active
+💬
+Prospect explicitly requests pricing or a formal proposal
+Rep delivers a formal proposal document
+05
+Proposal Sent
+Active
+📄
+Formal ComfortLighting proposal delivered to prospect
+Prospect acknowledges receipt; follow-up begins
+06
+Follow Up
+Active
+🔄
+Rep following up after proposal — no response yet or feedback received
+Prospect engages in pricing discussion or requests contract
+07
+Negotiation
+Closing
+🤝
+Prospect actively negotiating price, scope, or timeline
+Agreement on terms reached; contract preparation begins
+08
+Contract
+Closing
+📝
+Terms agreed; contract being drafted or reviewed internally
+Contract ready to send to prospect
+09
+Contract Sent
+Closing
+✉️
+Contract delivered to prospect for signature
+Contract signed by prospect (→ Closed Won) or declined (→ Closed Lost)
+10
+Closed Won
+Terminal
+🏆
+Contract signed; project confirmed
+Terminal — no further PROGRESS advancement
+11
+Closed Lost
+Terminal
+❌
+Prospect chose competitor, budget cut, or went silent after final follow-up
+Terminal — can be re-opened via Re-Engage action (future phase)
+12
+On Hold
+Special
+⏸️
+Prospect requested delay; budget freeze; timing deferred
+Can be moved to any active stage when prospect re-engages
+
+3. Workflow Transition Rules
+The pipeline is primarily sequential (stages 01–09) with two terminal exits (Closed Won, Closed Lost) and one reversible pause (On Hold). The following rules govern valid stage transitions:
+
+3.1 Forward Transitions (Normal Flow)
+Any stage 01–09 can advance to the immediately next stage by clicking the next stage node on the diagram
+Skip-forward is permitted — a rep may jump multiple stages (e.g., New Lead → Proposal Sent) if the prospect situation warrants, with a confirmation prompt
+From Contract Sent (09), the lead may advance to Closed Won (10) or Closed Lost (11)
+
+3.2 Backward Transitions (Retreats)
+Any active stage (01–09) can retreat to any earlier active stage — for example, Proposal Sent may return to Contacted if the deal restarts
+Closed Won and Closed Lost are terminal — they cannot advance or retreat without an explicit Admin override
+On Hold can be moved to any active stage 01–09 when the prospect re-engages
+
+3.3 On Hold — Special Behavior
+Any active stage (01–09) can be moved to On Hold at any time
+On Hold does not appear in the main pipeline stepper — it is displayed as a separate indicator below the diagram
+When returned from On Hold, the lead resumes at the stage it occupied before being placed on hold (the previous_progress value is preserved)
+
+3.4 Terminal Stage Rules
+Closed Won and Closed Lost are permanently highlighted in their terminal colors — the stepper does not show any further progression arrow
+Admin users may override a terminal stage to re-open a lead (e.g., returning Closed Lost to Contacted for a new attempt) — a mandatory reason note is required
+
+PROGRESS FIELD ALIGNMENT
+The 12 pipeline stages map directly to the PROGRESS controlled vocabulary in the leads table. Any change made via the diagram widget writes the new value to leads.progress immediately via an async PATCH request — the same field used for filtering, reporting, and the Sales Activity expense tracker.
+The diagram is always in sync with the PROGRESS field — they are the same data, displayed two ways.
+
+4. Diagram Design Specification
+4.1 Layout — SVG Pipeline Stepper
+The diagram is a horizontal SVG stepper rendered across the full width of the Lead Detail page. On screens narrower than 900px (tablets, small laptops) the diagram wraps into a two-row layout. On screens below 600px it collapses into a vertical stack.
+
+4.2 Stage Node Design
+State
+Visual Treatment
+Completed (past stages)
+Filled circle with a white checkmark (✓). COMPLETED arrow between nodes: solid, fully colored (muted green #5A9E7A), thicker body, arrowhead pointing right. Label text muted gray.
+Current (active stage)
+Larger filled circle with white stage icon. Pulsing ring animation. Bold label text below. ACTIVE arrow from previous node to current: solid bold blue (#2E75B6) arrowhead pointing right — the 'live' transition arrow.
+Future (upcoming stages)
+Outlined circle (empty). FUTURE arrow: thin dashed gray line with faint arrowhead — indicating possible direction but no committed movement.
+Closed Won (terminal)
+Gold trophy icon (🏆) in a large filled green circle. Final arrow is bold green with arrowhead. No outbound arrow after this node.
+Closed Lost (terminal)
+Red X icon in a large filled red circle. Final arrow is bold red with arrowhead. No outbound arrow after this node.
+On Hold (special badge)
+Does NOT appear in the main pipeline row. Displayed as an amber 'ON HOLD' badge below the stepper with a ⏸ icon. The last active stage node shows a yellow ring. No arrow changes — arrows remain persisted at the pre-hold stage.
+Clickable node hover
+On hover, node scales up 1.05×, cursor becomes pointer, the outbound arrow from that node briefly highlights in blue to preview the transition direction.
+
+4.3 Directional Arrows — Core Design
+Each stage transition is represented by a directional arrow — not a plain connector line. Arrows are the primary visual element communicating direction and history. Every arrow has a shaft (body) and a filled arrowhead pointing right (→) toward the destination stage.
+
+Arrow Type
+Color
+Style
+Meaning
+Completed arrow
+#5A9E7A (muted green)
+Solid, 3px shaft + filled arrowhead
+This transition was made in the past and persists in history — always visible
+Active arrow (current transition)
+#2E75B6 (bold blue)
+Solid, 4px shaft + larger filled arrowhead + animated pulse on arrowhead
+The most recent from_stage → to_stage move — the live active transition
+Future arrow
+#CED4DA (light gray)
+Dashed, 2px shaft + faint open arrowhead
+Possible next direction — not yet taken; no history
+Backward / retreat arrow
+#C9A227 (amber)
+Solid curved arrow below the track pointing left ←
+A stage retreat occurred — history shows the backward move as a separate curved arrow below the main track
+Terminal arrow (Closed Won)
+#145A32 (dark green)
+Bold solid, 5px shaft + large filled arrowhead
+Final forward transition into Closed Won
+Terminal arrow (Closed Lost)
+#7B1F1F (dark red)
+Bold solid, 5px shaft + large filled arrowhead
+Final forward transition into Closed Lost
+
+4.4 Arrow Persistence — Historical Arrows
+All past transition arrows are permanently rendered and never removed. As a lead advances through the pipeline, each from_stage → to_stage transition leaves a persistent colored arrow on the diagram. This gives an at-a-glance history of the deal's movement without opening the stage history log.
+Completed arrows are rendered in muted green (#5A9E7A) — distinct from the active blue arrow so the current transition stands out clearly
+Historical arrows do not animate — they are static to distinguish them from the active transition
+If a lead retreated backward (e.g., Proposal Sent → Contacted), the retreat is shown as an amber curved arrow below the track spanning from the retreat origin to the retreat destination, with an arrowhead pointing left
+All retreat arrows are also persistent — if the lead later re-advances past the same stages, both the original forward arrow, the retreat arrow, and the re-advancement arrow are all visible simultaneously
+Arrow history data is sourced from the lead_stage_history table — the macro loops over all history rows to render each arrow
+
+4.5 Stage Groups — Color Coding
+Group
+Stages
+Color
+Usage
+Entry
+01
+Steel Blue (#2E75B6)
+New Lead — cold, unopened
+Outreach
+02–03
+Blue (#2E75B6 → transition)
+First contact attempts
+Active
+03–06
+Green (#1E5C3A)
+Engaged pipeline — live deal
+Closing
+07–09
+Purple (#4A1F79)
+Contract and legal stages
+Terminal
+10–11
+Green / Red
+Final outcome — won or lost
+Special
+12
+Amber (#7B5C00)
+Paused — not lost, not active
+
+4.6 Stage Change Confirmation Modal
+Clicking a stage node opens a small confirmation modal (not a full page): 'Move this lead to {Stage Name}?'
+The modal shows the current stage, the target stage, and a brief description of what the stage means
+Two buttons: Confirm and Cancel
+For skip-forward jumps (more than one stage), an additional warning is shown: 'You are skipping X stages — are you sure?'
+For moves to Closed Won or Closed Lost, the modal includes an optional text field: 'Reason / closing notes'
+For Admin override of a terminal stage, the reason field is required
+
+5. Placement on the Lead Detail Page
+The diagram is placed in a dedicated card component near the top of the Lead Detail page, immediately below the lead title bar (Company Name + ACTION badge) and above the main field grid. This ensures the pipeline position is the first piece of context the rep sees when opening a lead.
+
+5.1 Lead Detail Page Layout — Updated Structure
+Section
+Content
+Title Bar
+Company Name (bold) | ACTION badge | Assigned To | Edit button
+PIPELINE DIAGRAM
+▶  SVG workflow stepper — 12 stages, current stage highlighted, completed stages checked, On Hold badge if applicable. Clickable nodes to change stage.
+Lead Summary
+Key fields: Contact, Phone, Email, Address, Sq Ft, Potential ROI, Annual Sales
+Activity & Expenses
+Sales activity and expense log (per the Activity & Expense PRD)
+Notes
+Full notes field, research summary, AI agent panel (if applicable)
+Proposals
+Generated proposals list (per the Proposal PRD)
+Contracts
+Contract records list (per the Contract PRD)
+
+WHY AT THE TOP
+Pipeline position is the single most important piece of context for a rep reviewing a lead. Placing the diagram above all other information means the rep immediately knows the current status, what happened before, and what the next step is — without scrolling.
+Every other section (notes, activities, proposals) provides supporting detail for the pipeline context shown in the diagram.
+
+6. Functional Requirements
+6.1 Diagram Rendering
+The diagram is rendered as an SVG element generated by a Jinja2 macro — built using inline SVG <line>, <polygon>, and <path> elements for precise arrow control
+The macro receives the current PROGRESS value AND the full stage history list (all rows from lead_stage_history for this lead)
+Each stage-to-stage transition in the history list produces a persistent directional arrow on the diagram
+SVG dimensions: 100% width, viewBox height 160px (increased from prior spec to accommodate retreat arrows below the track)
+The diagram is accessible: each stage node includes aria-label, role='button', and tabindex='0' for keyboard navigation
+Color is not the sole differentiator — arrows have distinct stroke widths, dash patterns, and arrowhead sizes per state
+
+6.2 Clickable Stage Nodes — Stage Change Interaction
+Each stage node is clickable (desktop) and tappable (mobile — native touch events)
+On hover, the outbound arrow from the hovered node briefly highlights in blue (#2E75B6) to preview what the arrow would look like if that transition were taken
+Click fires a JavaScript event that opens the confirmation modal
+On modal Confirm: JavaScript sends PATCH /leads/<id>/progress with { progress: 'Stage Name' }
+On success: the Flask route re-renders the full diagram macro (including all history arrows) and returns the SVG HTML — JavaScript replaces the diagram DOM node without a page reload
+The newly drawn active arrow animates in with a brief draw-on effect (stroke-dashoffset animation, 0.4s) to highlight the new transition
+On failure: the modal closes with an error toast — the diagram and arrows are unchanged
+
+6.3 On Hold Badge
+If leads.progress = 'On Hold', the main stepper shows the last active stage (leads.previous_progress) with a yellow pulsing ring
+An ON HOLD badge (amber, ⏸ icon, 'On Hold since {date}') appears directly below the stepper
+A Remove Hold button on the badge moves the lead back to its previous_progress stage
+The On Hold option is available in all stage confirmation modals as an alternative action: 'Put On Hold Instead'
+
+6.4 Stage History Tooltip
+Hovering over any completed stage node shows a tooltip: '{Stage Name} — {date reached} — {days spent}'
+Stage history is stored in a new lead_stage_history table — one row per stage transition
+This gives reps and managers visibility into how long a lead has spent at each stage
+
+6.5 Days in Stage Counter
+Below the current stage node, a small counter shows: 'In {Stage Name} for {N} days'
+This is calculated from the most recent entry in lead_stage_history for the current stage
+If N > 14 days for any active stage, the counter text turns amber (warning) — the rep may need to act
+If N > 30 days for any active stage, the counter turns red — the lead is flagged as stale
+
+6.6 Arrow Persistence — History Arrows
+All arrows are persisted and visible at all times — they are never cleared or reset when the stage advances
+On page load, the Flask route passes the full lead_stage_history queryset to the Jinja2 macro alongside the current lead
+The macro loops over every history row and renders the corresponding arrow for each from_stage → to_stage pair
+Forward arrows (from_stage index < to_stage index) are rendered on the main track between the two nodes, colored in muted green (#5A9E7A) for completed transitions
+The most recent forward arrow (the active transition) is rendered in bold blue (#2E75B6) with an animated arrowhead pulse
+Backward retreat arrows (from_stage index > to_stage index) are rendered as curved amber arrows below the node track, spanning from the origin node to the destination node with an arrowhead pointing left (←)
+When both a forward arrow and a retreat arrow exist between the same two nodes, both are displayed simultaneously — the forward arrow on the track, the retreat arrow below it — giving a full picture of the deal's oscillation
+Each persisted arrow includes a data-from and data-to attribute so JavaScript can reference and animate them individually
+
+7. Database Changes
+7.1 New Columns on the leads Table
+Column
+Type
+Null
+Description
+previous_progress
+VARCHAR(50)
+YES
+Last active stage before On Hold was set. Restored when On Hold is removed.
+stage_entered_at
+DATETIME
+YES
+Timestamp when the current PROGRESS stage was entered. Updated on every stage change.
+
+7.2 New Table — lead_stage_history
+Column
+Type
+Null
+Description
+id
+INT AUTO_INCREMENT
+PK
+Primary key
+lead_id
+INT
+NO
+FK → leads.id (CASCADE DELETE)
+from_stage
+VARCHAR(50)
+YES
+Stage the lead moved FROM. NULL for the initial entry.
+to_stage
+VARCHAR(50)
+NO
+Stage the lead moved TO.
+changed_by
+INT
+NO
+FK → users.id — who made the change
+changed_at
+DATETIME
+Auto
+Timestamp of the stage change. DEFAULT CURRENT_TIMESTAMP.
+reason
+TEXT
+YES
+Optional reason note — required for terminal stage overrides.
+days_in_stage
+DECIMAL(7,1)
+YES
+Calculated on write: days between previous changed_at and this timestamp.
+
+7.3 Migration SQL
+migration_workflow_diagram.sql
+-- Migration: Lead Workflow Diagram support
+-- Database: comfortlighting  |  User: comfort
+
+-- New columns on leads table
+ALTER TABLE leads
+  ADD COLUMN previous_progress VARCHAR(50) NULL DEFAULT NULL AFTER progress,
+  ADD COLUMN stage_entered_at  DATETIME   NULL DEFAULT NULL AFTER previous_progress;
+
+-- Backfill stage_entered_at for existing leads (use updated_at as proxy)
+UPDATE leads SET stage_entered_at = updated_at WHERE stage_entered_at IS NULL;
+
+-- New stage history table
+CREATE TABLE lead_stage_history (
+    id           INT AUTO_INCREMENT PRIMARY KEY,
+    lead_id      INT         NOT NULL,
+    from_stage   VARCHAR(50) NULL,
+    to_stage     VARCHAR(50) NOT NULL,
+    changed_by   INT         NOT NULL,
+    changed_at   DATETIME    DEFAULT CURRENT_TIMESTAMP,
+    reason       TEXT        NULL,
+    days_in_stage DECIMAL(7,1) NULL,
+    CONSTRAINT fk_lsh_lead FOREIGN KEY (lead_id)
+        REFERENCES leads(id) ON DELETE CASCADE,
+    CONSTRAINT fk_lsh_user FOREIGN KEY (changed_by)
+        REFERENCES users(id) ON DELETE RESTRICT,
+    INDEX idx_lsh_lead    (lead_id),
+    INDEX idx_lsh_changed (changed_at)
+);
+
+8. Flask Routes
+Method
+Route
+Auth
+Purpose
+GET
+/leads/<id>
+Login required
+Render Lead Detail page with diagram macro
+PATCH
+/leads/<id>/progress
+Login required
+Update PROGRESS stage; write stage history row; return updated diagram SVG fragment
+POST
+/leads/<id>/hold
+Login required
+Place lead On Hold — saves previous_progress, sets progress = On Hold
+POST
+/leads/<id>/unhold
+Login required
+Remove On Hold — restores progress = previous_progress
+GET
+/leads/<id>/stage-history
+Login required
+Return full stage history JSON for a lead (used in tooltip rendering)
+
+8.1 PATCH /leads/<id>/progress
+routes/leads.py  — progress update route
+@leads_bp.route('/leads/<int:id>/progress', methods=['PATCH'])
+@login_required
+def update_progress(id):
+    lead      = Lead.query.get_or_404(id)
+    data      = request.get_json()
+    new_stage = data.get('progress', '').strip()
+    reason    = data.get('reason', None)
+
+    VALID_STAGES = [
+        'New Lead','Call Scheduled','Contacted','Quote Requested',
+        'Proposal Sent','Follow Up','Negotiation','Contract',
+        'Contract Sent','Closed Won','Closed Lost','On Hold'
+    ]
+    if new_stage not in VALID_STAGES:
+        return jsonify({'error': 'Invalid stage'}), 400
+
+    # Terminal stage override requires Admin role
+    terminal = {'Closed Won','Closed Lost'}
+    if lead.progress in terminal and not current_user.is_admin:
+        return jsonify({'error': 'Admin required to re-open a terminal lead'}), 403
+
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+
+    # Calculate days spent in current stage
+    days_in = None
+    if lead.stage_entered_at:
+        delta = now - lead.stage_entered_at.replace(tzinfo=timezone.utc)
+        days_in = round(delta.total_seconds() / 86400, 1)
+
+    # Write history row
+    history = LeadStageHistory(
+        lead_id       = lead.id,
+        from_stage    = lead.progress,
+        to_stage      = new_stage,
+        changed_by    = current_user.id,
+        changed_at    = now,
+        reason        = reason,
+        days_in_stage = days_in
+    )
+    db.session.add(history)
+
+    # On Hold handling
+    if new_stage == 'On Hold':
+        lead.previous_progress = lead.progress
+    elif lead.progress == 'On Hold':
+        lead.previous_progress = None
+
+    lead.progress       = new_stage
+    lead.stage_entered_at = now
+    db.session.commit()
+
+    # Return updated SVG fragment for DOM replacement
+    svg_html = render_template('leads/_progress_diagram.html', lead=lead)
+    return jsonify({'success': True, 'diagram_html': svg_html}), 200
+
+9. Jinja2 Template Specification
+9.1 Progress Diagram Macro — SVG with Directional Arrows
+templates/leads/_progress_diagram.html  — SVG pipeline with arrow persistence
+{% macro progress_diagram(lead, stage_history) %}
+{% set stages = [
+  ('New Lead',        '🆕', 'entry'),
+  ('Call Scheduled',  '📅', 'outreach'),
+  ('Contacted',       '📞', 'outreach'),
+  ('Quote Requested', '💬', 'active'),
+  ('Proposal Sent',   '📄', 'active'),
+  ('Follow Up',       '🔄', 'active'),
+  ('Negotiation',     '🤝', 'closing'),
+  ('Contract',        '📝', 'closing'),
+  ('Contract Sent',   '✉',  'closing'),
+  ('Closed Won',      '🏆', 'terminal-won'),
+  ('Closed Lost',     '✕',  'terminal-lost'),
+] %}
+
+{# Build a lookup: stage name → index #}
+{% set ns = namespace(current_idx=0, name_to_idx={}) %}
+{% for s, icon, grp in stages %}
+  {% set _ = ns.name_to_idx.update({s: loop.index0}) %}
+{% endfor %}
+
+{% set current     = lead.progress %}
+{% set display_cur = lead.previous_progress if current == 'On Hold' else current %}
+{% set cur_idx     = ns.name_to_idx.get(display_cur, 0) %}
+
+{# SVG layout constants #}
+{# 11 nodes, node_cx spaced evenly across 960px viewBox width #}
+{# Track Y = 60, arrow Y = 60, retreat arc Y below track at 110 #}
+
+<div class="pipeline-wrapper" id="pipeline-diagram"
+     data-lead-id="{{ lead.id }}"
+     data-company="{{ lead.company_name | e }}">
+
+  <svg class="pipeline-svg" viewBox="0 0 960 160"
+       xmlns="http://www.w3.org/2000/svg"
+       role="img" aria-label="Lead pipeline progress diagram">
+    <defs>
+      {# Arrowhead markers — one per state color #}
+      <marker id="arrow-completed" markerWidth="8" markerHeight="6"
+              refX="8" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#5A9E7A"/>
+      </marker>
+      <marker id="arrow-active" markerWidth="10" markerHeight="7"
+              refX="10" refY="3.5" orient="auto">
+        <polygon points="0 0, 10 3.5, 0 7" fill="#2E75B6"/>
+      </marker>
+      <marker id="arrow-future" markerWidth="6" markerHeight="5"
+              refX="6" refY="2.5" orient="auto">
+        <polygon points="0 0, 6 2.5, 0 5" fill="#CED4DA" opacity="0.6"/>
+      </marker>
+      <marker id="arrow-retreat" markerWidth="8" markerHeight="6"
+              refX="0" refY="3" orient="auto-start-reverse">
+        <polygon points="8 0, 0 3, 8 6" fill="#C9A227"/>
+      </marker>
+      <marker id="arrow-won" markerWidth="10" markerHeight="7"
+              refX="10" refY="3.5" orient="auto">
+        <polygon points="0 0, 10 3.5, 0 7" fill="#145A32"/>
+      </marker>
+      <marker id="arrow-lost" markerWidth="10" markerHeight="7"
+              refX="10" refY="3.5" orient="auto">
+        <polygon points="0 0, 10 3.5, 0 7" fill="#7B1F1F"/>
+      </marker>
+    </defs>
+
+    {# Node x positions — 11 stages across 960px, left pad 44px #}
+    {# spacing = (960 - 88) / 10 = 87.2 px between nodes #}
+    {% set positions = [44,131,218,306,393,480,567,655,742,829,916] %}
+    {% set track_y   = 60 %}
+    {% set retreat_y = 118 %}
+
+    {# ── STEP 1: Render FUTURE arrows (gray dashed, bottom layer) ── #}
+    {% for i in range(stages|length - 1) %}
+      {% set x1 = positions[i]   + 22 %}
+      {% set x2 = positions[i+1] - 22 %}
+      {% if i >= cur_idx %}
+        <line x1="{{ x1 }}" y1="{{ track_y }}"
+              x2="{{ x2 }}" y2="{{ track_y }}"
+              stroke="#CED4DA" stroke-width="2"
+              stroke-dasharray="5,4"
+              marker-end="url(#arrow-future)"
+              class="arrow arrow-future"/>
+      {% endif %}
+    {% endfor %}
+
+    {# ── STEP 2: Render HISTORY arrows from lead_stage_history ── #}
+    {# stage_history is a list of (from_stage, to_stage, changed_at) tuples #}
+    {% set ns2 = namespace(last_forward_from=none, last_forward_to=none) %}
+    {% for from_s, to_s, changed_at in stage_history %}
+      {% set fi = ns.name_to_idx.get(from_s, -1) %}
+      {% set ti = ns.name_to_idx.get(to_s,   -1) %}
+      {% if fi >= 0 and ti >= 0 %}
+        {% if ti > fi %}
+          {# Forward arrow — rendered on track #}
+          {% set x1 = positions[fi] + 22 %}
+          {% set x2 = positions[ti] - 22 %}
+          {# Determine if this is the LAST (active) arrow #}
+          {% set ns2.last_forward_from = fi %}
+          {% set ns2.last_forward_to   = ti %}
+          <line x1="{{ x1 }}" y1="{{ track_y }}"
+                x2="{{ x2 }}" y2="{{ track_y }}"
+                stroke="#5A9E7A" stroke-width="3"
+                marker-end="url(#arrow-completed)"
+                data-from="{{ from_s }}" data-to="{{ to_s }}"
+                class="arrow arrow-completed"/>
+        {% else %}
+          {# Retreat arrow — curved arc below track #}
+          {% set cx1 = positions[fi] %}
+          {% set cx2 = positions[ti] %}
+          {% set mid  = (cx1 + cx2) / 2 %}
+          <path d="M {{ cx1 }} {{ retreat_y }}
+                   Q {{ mid }} {{ retreat_y + 28 }} {{ cx2 }} {{ retreat_y }}"
+                fill="none" stroke="#C9A227" stroke-width="2"
+                marker-end="url(#arrow-retreat)"
+                data-from="{{ from_s }}" data-to="{{ to_s }}"
+                class="arrow arrow-retreat"/>
+          <text x="{{ mid }}" y="{{ retreat_y + 38 }}"
+                text-anchor="middle" font-size="8" fill="#C9A227">
+            {{ from_s }} → {{ to_s }}</text>
+        {% endif %}
+      {% endif %}
+    {% endfor %}
+
+    {# ── STEP 3: Redraw ACTIVE (most recent) arrow in blue over completed ── #}
+    {% if ns2.last_forward_from is not none %}
+      {% set lfi = ns2.last_forward_from %}
+      {% set lti = ns2.last_forward_to %}
+      {% set x1  = positions[lfi] + 22 %}
+      {% set x2  = positions[lti] - 22 %}
+      {% set is_won  = stages[lti][2] == 'terminal-won' %}
+      {% set is_lost = stages[lti][2] == 'terminal-lost' %}
+      {% set mk = 'arrow-won' if is_won else ('arrow-lost' if is_lost else 'arrow-active') %}
+      {% set sc = '#145A32' if is_won else ('#7B1F1F' if is_lost else '#2E75B6') %}
+      {% set sw = '5' if (is_won or is_lost) else '4' %}
+      <line x1="{{ x1 }}" y1="{{ track_y }}"
+            x2="{{ x2 }}" y2="{{ track_y }}"
+            stroke="{{ sc }}" stroke-width="{{ sw }}"
+            marker-end="url(#{{ mk }})"
+            class="arrow arrow-active arrow-draw-on"/>
+    {% endif %}
+
+    {# ── STEP 4: Render NODE CIRCLES ── #}
+    {% for s, icon, grp in stages %}
+      {% set idx = loop.index0 %}
+      {% set cx  = positions[idx] %}
+      {% if idx < cur_idx %}{% set state='completed'
+      {% elif idx == cur_idx %}{% set state='current'
+      {% else %}{% set state='future' %}{% endif %}
+      {% if 'terminal' in grp %}{% set state=grp %}{% endif %}
+
+      {# Node circle fill #}
+      {% if state == 'completed' %}
+        {% set fill='#1E5C3A' %}{% set stroke='#1E5C3A' %}{% set r=18 %}
+      {% elif state == 'current' %}
+        {% set fill='#2E75B6' %}{% set stroke='#1F4E79' %}{% set r=22 %}
+      {% elif state == 'terminal-won' %}
+        {% set fill='#145A32' %}{% set stroke='#0F3D22' %}{% set r=22 %}
+      {% elif state == 'terminal-lost' %}
+        {% set fill='#7B1F1F' %}{% set stroke='#5A0F0F' %}{% set r=22 %}
+      {% else %}
+        {% set fill='#f8f9fa' %}{% set stroke='#dee2e6' %}{% set r=18 %}
+      {% endif %}
+
+      <circle cx="{{ cx }}" cy="{{ track_y }}" r="{{ r }}"
+              fill="{{ fill }}" stroke="{{ stroke }}" stroke-width="2"
+              class="node-circle node-circle--{{ state }}"
+              data-stage="{{ s }}"
+              role="button" tabindex="0"
+              aria-label="{{ s }}{% if state == 'current' %} - current stage{% endif %}"/>
+
+      {# Icon or checkmark inside circle #}
+      {% if state == 'completed' %}
+        <text x="{{ cx }}" y="{{ track_y + 5 }}"
+              text-anchor="middle" font-size="14" fill="white">✓</text>
+      {% elif state == 'future' %}
+        <text x="{{ cx }}" y="{{ track_y + 5 }}"
+              text-anchor="middle" font-size="11" fill="#adb5bd">{{ idx+1 }}</text>
+      {% else %}
+        <text x="{{ cx }}" y="{{ track_y + 5 }}"
+              text-anchor="middle" font-size="14">{{ icon }}</text>
+      {% endif %}
+
+      {# Pulsing ring on current node #}
+      {% if state == 'current' %}
+        <circle cx="{{ cx }}" cy="{{ track_y }}" r="28"
+                fill="none" stroke="#2E75B6" stroke-width="2"
+                opacity="0.35" class="pulse-ring"/>
+      {% endif %}
+
+      {# On Hold yellow ring on previous stage #}
+      {% if current == 'On Hold' and s == display_cur %}
+        <circle cx="{{ cx }}" cy="{{ track_y }}" r="28"
+                fill="none" stroke="#C9A227" stroke-width="3"
+                class="hold-ring"/>
+      {% endif %}
+
+      {# Stage label below circle #}
+      <text x="{{ cx }}" y="{{ track_y + r + 14 }}"
+            text-anchor="middle" font-size="9"
+            fill="{% if state=='current' %}#1F4E79{% elif state=='future' %}#adb5bd{% else %}#555{% endif %}"
+            font-weight="{% if state=='current' %}bold{% else %}normal{% endif %}">
+        {{ s | replace(' ', '\n') }}</text>
+
+      {# Days counter on current node #}
+      {% if state == 'current' and lead.days_in_stage is not none %}
+        <text x="{{ cx }}" y="{{ track_y - r - 8 }}"
+              text-anchor="middle" font-size="9"
+              fill="{% if lead.days_in_stage > 30 %}#7B1F1F{% elif lead.days_in_stage > 14 %}#7B5C00{% else %}#888{% endif %}">
+          {{ lead.days_in_stage | int }}d
+        </text>
+      {% endif %}
+
+    {% endfor %}
+  </svg>
+
+  {# On Hold badge below SVG #}
+  {% if current == 'On Hold' %}
+  <div class="on-hold-badge">
+    <span>⏸</span>
+    <strong>On Hold</strong>
+    <span class="on-hold-since">
+      since {{ lead.stage_entered_at.strftime('%b %-d') if lead.stage_entered_at }}
+    </span>
+    <button class="btn btn-sm btn-outline-warning ms-2 remove-hold-btn">
+      Resume
+    </button>
+  </div>
+  {% endif %}
+
+</div>
+{% endmacro %}
+
+9.2 Stage Change Confirmation Modal
+templates/leads/_stage_modal.html  — confirmation modal
+<div class="modal fade" id="stageModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Confirm Stage Change</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p>
+          Move <strong id="modal-company"></strong> from
+          <span class="badge" id="modal-from-badge"></span> to
+          <span class="badge" id="modal-to-badge"></span>?
+        </p>
+        <p id="modal-skip-warning" class="text-warning small" style="display:none">
+          ⚠  You are skipping multiple stages.
+        </p>
+        <p class="text-muted small" id="modal-stage-desc"></p>
+        <div id="modal-reason-group" style="display:none">
+          <label class="form-label fw-semibold">
+            Notes <span id="modal-reason-required"></span>
+          </label>
+          <textarea id="modal-reason" class="form-control" rows="2"
+            placeholder="Closing reason, notes, or override justification…"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary"
+                data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary"
+                id="modal-confirm-btn">Confirm</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+10. CSS Specification
+static/css/pipeline_diagram.css  — arrow-aware styles
+/* ── Pipeline wrapper ────────────────────────────────── */
+.pipeline-wrapper {
+  background:    #f8fbff;
+  border:        1px solid #c5d9f0;
+  border-radius: 10px;
+  padding:       20px 16px 14px;
+  margin-bottom: 24px;
+  overflow-x:    auto;
+}
+
+/* ── SVG canvas ──────────────────────────────────────── */
+.pipeline-svg {
+  width:      100%;
+  min-width:  860px;     /* scroll on small screens */
+  height:     auto;
+  display:    block;
+}
+
+/* ── Arrow base styles ───────────────────────────────── */
+.arrow { transition: stroke 0.2s, stroke-width 0.2s; }
+
+/* Completed arrows — muted green, distinct from active */
+.arrow-completed {
+  stroke:       #5A9E7A;
+  stroke-width: 3;
+}
+
+/* Active (most recent) arrow — bold blue, stands out */
+.arrow-active {
+  stroke:       #2E75B6;
+  stroke-width: 4;
+}
+
+/* Future arrows — dashed gray, indicates possibility */
+.arrow-future {
+  stroke:       #CED4DA;
+  stroke-width: 2;
+  stroke-dasharray: 5, 4;
+}
+
+/* Retreat arrows — amber curved path below track */
+.arrow-retreat {
+  stroke:       #C9A227;
+  stroke-width: 2;
+  fill:         none;
+}
+
+/* ── Arrow draw-on animation for new active arrow ────── */
+.arrow-draw-on {
+  stroke-dasharray:  960;
+  stroke-dashoffset: 960;
+  animation: draw-arrow 0.45s ease-out forwards;
+}
+@keyframes draw-arrow {
+  to { stroke-dashoffset: 0; }
+}
+
+/* ── Hover: preview arrow highlight ─────────────────── */
+.node-circle--future:hover ~ .arrow-future,
+.pipeline-wrapper:has(.node-circle--future:hover) .arrow-future {
+  stroke: #2E75B6; stroke-dasharray: none; opacity: 0.7;
+}
+
+/* ── Node circles ────────────────────────────────────── */
+.node-circle {
+  cursor:     pointer;
+  transition: r 0.15s, filter 0.15s;
+}
+.node-circle:hover  { filter: brightness(1.15); }
+.node-circle:focus  { outline: 2px solid #2E75B6; }
+
+.node-circle--current {
+  filter: drop-shadow(0 0 6px rgba(46,117,182,0.5));
+}
+
+/* ── Pulse ring on current node ─────────────────────── */
+.pulse-ring {
+  animation: pulse-ring 2s ease-in-out infinite;
+}
+@keyframes pulse-ring {
+  0%,100% { r: 28; opacity: 0.35; }
+  50%      { r: 33; opacity: 0.10; }
+}
+
+/* ── On Hold badge ───────────────────────────────────── */
+.on-hold-badge {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 12px; padding: 8px 14px;
+  background: #FFF3CD; border: 1px solid #C9A227;
+  border-radius: 6px; color: #7B5C00; font-size: 14px;
+}
+
+/* ── Responsive ─────────────────────────────────────── */
+@media (max-width: 900px) {
+  .pipeline-svg { min-width: 700px; }
+}
+
+11. JavaScript — Interaction Layer
+static/js/pipeline_diagram.js  — arrow-aware version
+// ── Pipeline Diagram — stage click + arrow interaction ─
+const STAGES = [
+  { name:'New Lead',        desc:'Lead created — no contact attempted yet.' },
+  { name:'Call Scheduled',  desc:'A call or meeting has been scheduled.' },
+  { name:'Contacted',       desc:'Initial contact made with the prospect.' },
+  { name:'Quote Requested', desc:'Prospect has requested pricing or a quote.' },
+  { name:'Proposal Sent',   desc:'Formal proposal delivered to the prospect.' },
+  { name:'Follow Up',       desc:'Rep following up after proposal delivery.' },
+  { name:'Negotiation',     desc:'Prospect actively negotiating terms or price.' },
+  { name:'Contract',        desc:'Contract being prepared or reviewed internally.' },
+  { name:'Contract Sent',   desc:'Contract delivered to prospect for signature.' },
+  { name:'Closed Won',      desc:'Deal closed — contract signed, project confirmed.' },
+  { name:'Closed Lost',     desc:'Deal lost — competitor, declined, or went dark.' },
+  { name:'On Hold',         desc:'Lead paused — prospect requested delay.' },
+];
+
+const CSRF = document.querySelector('meta[name=csrf-token]')?.content;
+let pendingStage = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+  attachNodeHandlers();
+  attachArrowHoverPreviews();
+});
+
+// ── Attach node click + keyboard handlers ─────────────
+function attachNodeHandlers() {
+  document.querySelectorAll('.node-circle[data-stage]').forEach(node => {
+    node.addEventListener('click',   () => openModal(node.dataset.stage));
+    node.addEventListener('keydown', e => { if (e.key==='Enter') openModal(node.dataset.stage); });
+  });
+  const removeHold = document.querySelector('.remove-hold-btn');
+  if (removeHold) removeHold.addEventListener('click', unhold);
+}
+
+// ── Arrow hover preview ───────────────────────────────
+// When the user hovers over a future node, briefly tint
+// the future arrows leading to it in blue to preview direction.
+function attachArrowHoverPreviews() {
+  document.querySelectorAll('.node-circle--future').forEach(node => {
+    node.addEventListener('mouseenter', () => {
+      const targetStage = node.dataset.stage;
+      document.querySelectorAll('.arrow-future').forEach(arrow => {
+        if (arrow.dataset.to === targetStage || !arrow.dataset.to) {
+          arrow.style.stroke = '#2E75B6';
+          arrow.style.strokeDasharray = 'none';
+          arrow.style.opacity = '0.7';
+        }
+      });
+    });
+    node.addEventListener('mouseleave', () => {
+      document.querySelectorAll('.arrow-future').forEach(arrow => {
+        arrow.style.stroke = '';
+        arrow.style.strokeDasharray = '';
+        arrow.style.opacity = '';
+      });
+    });
+  });
+}
+
+// ── Open confirmation modal ───────────────────────────
+function openModal(targetStage) {
+  const diagram      = document.getElementById('pipeline-diagram');
+  const currentCircle= diagram.querySelector('.node-circle--current') ||
+                       diagram.querySelector('.node-circle--terminal-won, .node-circle--terminal-lost');
+  const currentStage = currentCircle?.dataset.stage;
+  const fromIdx      = STAGES.findIndex(s => s.name === currentStage);
+  const toIdx        = STAGES.findIndex(s => s.name === targetStage);
+  if (fromIdx === toIdx) return;
+
+  pendingStage = targetStage;
+  const isTerminal = ['Closed Won','Closed Lost'].includes(targetStage);
+  const isSkip     = Math.abs(toIdx - fromIdx) > 1;
+  const isRetreat  = toIdx < fromIdx;
+
+  document.getElementById('modal-company').textContent =
+    diagram.dataset.company || 'this lead';
+  document.getElementById('modal-from-badge').textContent = currentStage || '—';
+  document.getElementById('modal-to-badge').textContent   = targetStage;
+  document.getElementById('modal-stage-desc').textContent =
+    STAGES[toIdx]?.desc || '';
+  document.getElementById('modal-skip-warning').style.display   = isSkip    ? '' : 'none';
+  document.getElementById('modal-retreat-warning').style.display = isRetreat ? '' : 'none';
+  document.getElementById('modal-reason-group').style.display   = isTerminal ? '' : 'none';
+
+  // Preview: highlight the specific arrow for this transition
+  highlightPreviewArrow(currentStage, targetStage);
+
+  new bootstrap.Modal(document.getElementById('stageModal')).show();
+}
+
+// Preview arrow highlight — shows what the new arrow will look like
+function highlightPreviewArrow(fromStage, toStage) {
+  // Temporarily add a preview dashed blue arrow over future arrows
+  const svg  = document.querySelector('.pipeline-svg');
+  if (!svg) return;
+  const old  = svg.querySelector('.arrow-preview');
+  if (old) old.remove();
+  // The actual preview is handled by CSS hover state — no extra DOM needed
+}
+
+// ── Confirm stage change ──────────────────────────────
+document.getElementById('modal-confirm-btn')?.addEventListener('click', async () => {
+  if (!pendingStage) return;
+  const leadId = document.getElementById('pipeline-diagram').dataset.leadId;
+  const reason = document.getElementById('modal-reason')?.value || null;
+
+  const res  = await fetch(`/leads/${leadId}/progress`, {
+    method:  'PATCH',
+    headers: { 'Content-Type':'application/json', 'X-CSRFToken': CSRF },
+    body:    JSON.stringify({ progress: pendingStage, reason })
+  });
+  const data = await res.json();
+
+  bootstrap.Modal.getInstance(document.getElementById('stageModal')).hide();
+
+  if (data.success) {
+    // Replace diagram with server-rendered version (includes all history arrows)
+    document.getElementById('pipeline-diagram').outerHTML = data.diagram_html;
+    attachNodeHandlers();
+    attachArrowHoverPreviews();
+    // The new active arrow has class arrow-draw-on → CSS animates it in
+    showToast(`Moved to: ${pendingStage}`, 'success');
+  } else {
+    showToast(data.error || 'Could not update stage.', 'danger');
+  }
+  pendingStage = null;
+});
+
+// ── Remove On Hold ────────────────────────────────────
+async function unhold() {
+  const leadId = document.getElementById('pipeline-diagram').dataset.leadId;
+  const res    = await fetch(`/leads/${leadId}/unhold`, {
+    method:'POST', headers:{'X-CSRFToken':CSRF}
+  });
+  const data = await res.json();
+  if (data.success) {
+    document.getElementById('pipeline-diagram').outerHTML = data.diagram_html;
+    attachNodeHandlers();
+    attachArrowHoverPreviews();
+    showToast('On Hold removed — lead resumed.', 'success');
+  }
+}
+
+11.2 Flask Route Update — Pass Stage History to Macro
+routes/leads.py  — view_lead() passes history to macro
+@leads_bp.route('/leads/<int:id>', methods=['GET'])
+@login_required
+def view_lead(id):
+    lead = Lead.query.get_or_404(id)
+
+    # Load full stage history for arrow rendering
+    stage_history = (
+        LeadStageHistory.query
+        .filter_by(lead_id=id)
+        .order_by(LeadStageHistory.changed_at.asc())
+        .with_entities(
+            LeadStageHistory.from_stage,
+            LeadStageHistory.to_stage,
+            LeadStageHistory.changed_at
+        )
+        .all()
+    )
+
+    return render_template('leads/view.html',
+                           lead=lead,
+                           stage_history=stage_history)
+
+# In the PATCH /leads/<id>/progress route, the render_template call
+# for diagram_html must also pass stage_history:
+# svg_html = render_template('leads/_progress_diagram.html',
+#                             lead=lead, stage_history=history_list)
+
+12. Acceptance Criteria
+
+AC #
+Criterion
+AC-01
+The pipeline diagram renders on the Lead Detail page immediately below the title bar, above the field grid.
+AC-02
+All 12 stages are displayed in the correct order. On Hold is shown as an amber badge below the diagram, not as a node in the main pipeline row.
+AC-03
+Each stage-to-stage transition is represented by a directional arrow with a visible arrowhead pointing from the from_stage node toward the to_stage node (→). There are no plain connector lines — only arrows.
+AC-04
+Completed (historical) arrows are rendered in muted green (#5A9E7A) with a solid 3px shaft and filled arrowhead. They are visually distinct from the active arrow.
+AC-05
+The most recent (active) from_stage → to_stage arrow is rendered in bold blue (#2E75B6) with a 4px shaft, larger arrowhead, and a draw-on animation (stroke-dashoffset) that plays once when the stage is updated.
+AC-06
+Future arrows (stages not yet reached) are rendered as dashed gray lines (#CED4DA) with faint open arrowheads.
+AC-07
+All completed history arrows persist on the diagram permanently — they are never cleared or overwritten when the lead advances to a new stage.
+AC-08
+A retreat (backward stage move) is shown as a curved amber arrow (#C9A227) below the main pipeline track, with an arrowhead pointing left (←) toward the earlier stage. It includes a small label showing from_stage → to_stage.
+AC-09
+Retreat arrows also persist permanently alongside any later forward arrows covering the same span — both are visible simultaneously.
+AC-10
+On page load, all historical arrows are rendered correctly from the lead_stage_history table — the diagram accurately reflects every transition the lead has ever made.
+AC-11
+The current stage node is rendered as a larger filled circle with the stage icon and a pulsing ring animation.
+AC-12
+Hovering over a future stage node briefly tints the future arrows pointing to it in blue, previewing what the active arrow would look like if that transition were taken.
+AC-13
+Clicking any stage node opens a confirmation modal. The modal shows the current stage, the target stage, the stage description, a skip warning (if applicable), and a retreat warning (if moving backward).
+AC-14
+On modal Confirm, PATCH /leads/<id>/progress is called. On success, the diagram is replaced with the fully re-rendered SVG (including all history arrows) without a full page reload.
+AC-15
+The newly drawn active arrow plays the draw-on animation (strokes in from left to right over 0.45s) after the diagram is replaced in the DOM.
+AC-16
+Moving to On Hold shows the amber badge; arrows on the diagram remain in their pre-hold state — no new arrow is drawn for On Hold itself.
+AC-17
+Closed Won and Closed Lost terminal arrows are rendered in dark green / dark red respectively, with a 5px shaft and large arrowhead. No outbound arrow is drawn beyond the terminal node.
+AC-18
+Every stage transition (including retreats) is written to lead_stage_history with from_stage, to_stage, changed_by, changed_at, reason, and days_in_stage.
+AC-19
+The diagram is keyboard-navigable: Tab selects each node circle, Enter opens the confirmation modal.
+AC-20
+On screens narrower than 900px the SVG is horizontally scrollable inside the pipeline-wrapper container without breaking the page layout.
+
+13. Impacted Files & Components
+File / Component
+Change
+Summary
+migration_workflow_diagram.sql
+New
+Adds previous_progress, stage_entered_at to leads; creates lead_stage_history table
+models/lead.py
+Edit
+Add previous_progress, stage_entered_at columns; add days_in_stage computed property
+models/lead_stage_history.py
+New
+LeadStageHistory SQLAlchemy model
+routes/leads.py
+Edit
+Add PATCH /progress, POST /hold, POST /unhold, GET /stage-history routes
+templates/leads/view.html
+Edit
+Import and call progress_diagram macro; add stageModal include; add data-company attribute
+templates/leads/_progress_diagram.html
+New
+Jinja2 macro rendering SVG pipeline with layered arrows: future (dashed gray), completed (muted green), active (bold blue), retreat (amber curved), terminal (dark green/red); On Hold badge
+templates/leads/_stage_modal.html
+New
+Bootstrap modal with skip warning, retreat warning, and terminal reason textarea
+static/js/pipeline_diagram.js
+New
+Node click handlers, arrow hover preview, modal open/confirm, PATCH fetch, DOM replacement with draw-on animation re-trigger, unhold handler
+static/css/pipeline_diagram.css
+New
+Arrow states (.arrow-completed, .arrow-active, .arrow-future, .arrow-retreat), draw-on @keyframes, pulse-ring animation, On Hold badge, responsive min-width
+templates/base.html
+Edit
+Include pipeline_diagram.js and pipeline_diagram.css on lead detail pages
+
+14. Development Milestones
+#
+Milestone
+Deliverables
+Est. Duration
+1
+DB Migration
+migration SQL run; Lead model updated; LeadStageHistory model created
+0.5 day
+2
+Flask Routes
+PATCH /progress, POST /hold, POST /unhold, GET /stage-history routes with stage validation and history write
+1.5 days
+3
+Jinja2 SVG Macro
+_progress_diagram.html macro: SVG viewBox, arrowhead defs, layered arrow rendering (future → completed → active), retreat arc paths, node circles, labels, days counter, On Hold badge
+2 days
+4
+CSS — Arrow Styles
+pipeline_diagram.css: .arrow-completed, .arrow-active, .arrow-future, .arrow-retreat; draw-on @keyframes; pulse-ring; arrowhead marker colors; responsive SVG min-width
+1 day
+5
+JavaScript Interaction
+pipeline_diagram.js: node click handlers, arrow hover preview (future arrow tint), modal retreat warning, PATCH call, DOM replacement, draw-on animation re-trigger on new active arrow, unhold handler
+1.5 days
+6
+Confirmation Modal
+_stage_modal.html: skip warning, retreat warning, terminal reason field; admin override handling
+0.5 day
+7
+Stage History Tooltip
+Hover tooltip on completed nodes showing date reached and days spent; GET /stage-history API call
+0.5 day
+8
+Testing & UAT
+pytest route tests; manual UAT for arrow persistence across forward, skip, retreat, and terminal transitions; On Hold arrow state; admin override; keyboard nav; cross-browser arrow rendering
+1.5 days
+9
+Deploy
+Migration applied to production MySQL; Passenger restart; smoke test on live lead record
+0.5 day
+
+15. Open Questions
+Should the stage history log be visible to the assigned rep on the Lead Detail page, or only to Admin? Current spec shows it only as a hover tooltip on the diagram.
+Should the stale stage warning (14 days amber / 30 days red) also send a notification or create a task reminder for the assigned rep?
+Should Closed Lost leads be re-openable by the assigned rep (not just Admin), or should terminal overrides always require Admin?
+Should the On Hold duration appear in the stage history — i.e., should 'On Hold' appear as a row in lead_stage_history (and therefore generate an arrow), or is it excluded since it is not a true pipeline stage?
+Should multi-location companies support a per-location PROGRESS stage (e.g., if a prospect has 3 sites, each site has its own pipeline position and its own arrow history)?
+Should the Lead Dashboard list view show a mini version of the pipeline diagram (e.g., a condensed progress bar with a small arrow indicator) in each row, or only the text PROGRESS label?
+For leads with many stage retreats (e.g., 5+ backward moves), the retreat arrows below the track could become visually crowded. Should there be a maximum number of visible retreat arrows, with older ones collapsed into a 'View full history' link?
+Should the completed arrow color (#5A9E7A muted green) vary by stage group — e.g., blue arrows through Outreach stages, green through Active, purple through Closing — or remain a uniform muted green for all completed transitions?
+
+16. Document Approval
+
+Role
+Name
+Date
+Product Manager
+
+
+Lead Developer
+
+
+Project Owner / Client
+
+
+Reviewer
+
+
