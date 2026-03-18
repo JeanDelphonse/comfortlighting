@@ -18,7 +18,9 @@ REQUIRED DATA POINTS (extract all that are findable):
 - potential_roi: Annual LED savings in USD (numeric value only, e.g. 48000)
 - annual_sales: Estimated annual revenue as a formatted string, e.g. "$45M"
 - notes: 3–5 sentence synthesized summary covering facility type, contact title,
-         any recent news/trigger events, and other locations
+         any recent news/trigger events, and other locations. provide a persuasive elevator 
+         pitch I can provide to a facility manager for when I call them so they can understand 
+         the value of Comfortlighting 
 - facility_type: One of: warehouse, cold storage, lab, manufacturing, showroom, garage, distribution center, other
 - employee_count: Number of employees at this facility
 - other_locations: Multi-site opportunity description, e.g. "4 facilities in Midwest"
