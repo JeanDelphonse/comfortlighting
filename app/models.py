@@ -3,13 +3,15 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
 
+from utils.id_gen import make_id
+
 db = SQLAlchemy()
 
 
 class User(UserMixin, db.Model):
     __tablename__ = 'users'
 
-    id         = db.Column(db.Integer, primary_key=True)
+    id         = db.Column(db.String(17), primary_key=True, default=make_id('users'))
     username   = db.Column(db.String(100), unique=True, nullable=False)
     email      = db.Column(db.String(255), unique=True, nullable=False)
     password   = db.Column(db.String(255), nullable=False, comment='bcrypt hash')
@@ -42,7 +44,7 @@ class User(UserMixin, db.Model):
 class Lead(db.Model):
     __tablename__ = 'leads'
 
-    id                     = db.Column(db.Integer, primary_key=True)
+    id                     = db.Column(db.String(17), primary_key=True, default=make_id('leads'))
     created_at             = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     updated_at             = db.Column(db.DateTime, nullable=False, default=datetime.utcnow,
                                        onupdate=datetime.utcnow)
@@ -54,7 +56,7 @@ class Lead(db.Model):
     email                  = db.Column(db.String(255), nullable=False)
     notes                  = db.Column(db.Text)
     assigned_user_id       = db.Column(
-        db.Integer,
+        db.String(17),
         db.ForeignKey('users.id', ondelete='SET NULL', onupdate='CASCADE'),
         nullable=True,
         index=True,
@@ -91,9 +93,9 @@ class Lead(db.Model):
 class LeadStageHistory(db.Model):
     __tablename__ = 'lead_stage_history'
 
-    id            = db.Column(db.Integer, primary_key=True)
+    id            = db.Column(db.String(17), primary_key=True, default=make_id('lead_stage_history'))
     lead_id       = db.Column(
-        db.Integer,
+        db.String(17),
         db.ForeignKey('leads.id', ondelete='CASCADE'),
         nullable=False,
         index=True,
@@ -102,7 +104,7 @@ class LeadStageHistory(db.Model):
     to_stage      = db.Column(db.String(100), nullable=False)
     changed_at    = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     changed_by_id = db.Column(
-        db.Integer,
+        db.String(17),
         db.ForeignKey('users.id', ondelete='SET NULL'),
         nullable=True,
     )
@@ -115,9 +117,9 @@ class LeadStageHistory(db.Model):
 class Proposal(db.Model):
     __tablename__ = 'proposals'
 
-    id               = db.Column(db.Integer, primary_key=True)
+    id               = db.Column(db.String(17), primary_key=True, default=make_id('proposals'))
     lead_id          = db.Column(
-        db.Integer,
+        db.String(17),
         db.ForeignKey('leads.id', ondelete='CASCADE'),
         nullable=False,
         unique=True,
@@ -162,9 +164,9 @@ class Proposal(db.Model):
 class Contract(db.Model):
     __tablename__ = 'contracts'
 
-    id                   = db.Column(db.Integer, primary_key=True)
+    id                   = db.Column(db.String(17), primary_key=True, default=make_id('contracts'))
     lead_id              = db.Column(
-        db.Integer,
+        db.String(17),
         db.ForeignKey('leads.id', ondelete='CASCADE'),
         nullable=False,
         unique=True,
@@ -192,7 +194,11 @@ class Contract(db.Model):
     generated_by     = db.Column(db.String(100), nullable=False)
     edited_by        = db.Column(db.String(100), nullable=True)
     approved         = db.Column(db.SmallInteger, nullable=False, default=0)
-    approved_by      = db.Column(db.String(100), nullable=True)
+    approved_by      = db.Column(
+        db.String(17),
+        db.ForeignKey('users.id', ondelete='SET NULL'),
+        nullable=True,
+    )
     approved_at      = db.Column(db.DateTime, nullable=True)
     contract_sent    = db.Column(db.SmallInteger, nullable=False, default=0)
     sent_by          = db.Column(db.String(100), nullable=True)
@@ -204,7 +210,9 @@ class Contract(db.Model):
         default=datetime.utcnow, onupdate=datetime.utcnow,
     )
 
-    lead = db.relationship('Lead', backref=db.backref('contract', uselist=False))
+    lead             = db.relationship('Lead', backref=db.backref('contract', uselist=False))
+    approved_by_user = db.relationship('User', foreign_keys=[approved_by],
+                                       backref='approved_contracts')
 
     def to_dict(self) -> dict:
         return {
@@ -230,7 +238,8 @@ class Contract(db.Model):
             'generated_by':          self.generated_by,
             'edited_by':             self.edited_by,
             'approved':              int(self.approved) if self.approved is not None else 0,
-            'approved_by':           self.approved_by,
+            'approved_by':           (self.approved_by_user.username
+                                      if self.approved_by_user else self.approved_by),
             'approved_at':           self.approved_at.isoformat() if self.approved_at else None,
             'contract_sent':         int(self.contract_sent) if self.contract_sent is not None else 0,
             'sent_by':               self.sent_by,
@@ -244,9 +253,9 @@ class Contract(db.Model):
 class ContractVersion(db.Model):
     __tablename__ = 'contract_versions'
 
-    id                  = db.Column(db.Integer, primary_key=True)
+    id                  = db.Column(db.String(17), primary_key=True, default=make_id('contract_versions'))
     contract_id         = db.Column(
-        db.Integer,
+        db.String(17),
         db.ForeignKey('contracts.id', ondelete='CASCADE'),
         nullable=False,
     )
@@ -269,7 +278,7 @@ class ContractVersion(db.Model):
 class SystemConfig(db.Model):
     __tablename__ = 'system_config'
 
-    id           = db.Column(db.Integer, primary_key=True)
+    id           = db.Column(db.String(17), primary_key=True, default=make_id('system_config'))
     config_key   = db.Column(db.String(100), unique=True, nullable=False)
     config_value = db.Column(db.String(500), nullable=False)
     updated_by   = db.Column(db.String(100), nullable=True)
@@ -285,9 +294,10 @@ class SystemConfig(db.Model):
 class ExpenseCategory(db.Model):
     __tablename__ = 'expense_categories'
 
-    id                     = db.Column(db.Integer, primary_key=True)
+    id                     = db.Column(db.String(17), primary_key=True,
+                                       default=make_id('expense_categories'))
     parent_id              = db.Column(
-        db.Integer,
+        db.String(17),
         db.ForeignKey('expense_categories.id', ondelete='SET NULL'),
         nullable=True,
     )
@@ -314,27 +324,27 @@ class ExpenseCategory(db.Model):
 class LeadActivity(db.Model):
     __tablename__ = 'lead_activities'
 
-    id               = db.Column(db.Integer, primary_key=True)
+    id               = db.Column(db.String(17), primary_key=True, default=make_id('lead_activities'))
     lead_id          = db.Column(
-        db.Integer,
+        db.String(17),
         db.ForeignKey('leads.id', ondelete='CASCADE'),
         nullable=False,
         index=True,
     )
     user_id          = db.Column(
-        db.Integer,
+        db.String(17),
         db.ForeignKey('users.id', ondelete='RESTRICT'),
         nullable=False,
         index=True,
     )
     activity_date    = db.Column(db.Date, nullable=False, index=True)
     category_id      = db.Column(
-        db.Integer,
+        db.String(17),
         db.ForeignKey('expense_categories.id'),
         nullable=False,
     )
     subcategory_id   = db.Column(
-        db.Integer,
+        db.String(17),
         db.ForeignKey('expense_categories.id'),
         nullable=True,
     )
@@ -380,9 +390,10 @@ class LeadActivity(db.Model):
 class AgentResearchLog(db.Model):
     __tablename__ = 'agent_research_log'
 
-    id               = db.Column(db.Integer, primary_key=True)
+    id               = db.Column(db.String(17), primary_key=True,
+                                 default=make_id('agent_research_log'))
     lead_id          = db.Column(
-        db.Integer,
+        db.String(17),
         db.ForeignKey('leads.id', ondelete='SET NULL'),
         nullable=True,
         index=True,
@@ -390,7 +401,7 @@ class AgentResearchLog(db.Model):
     run_id           = db.Column(db.String(36), nullable=False, unique=True)
     company_searched = db.Column(db.String(255), nullable=False)
     user_id          = db.Column(
-        db.Integer,
+        db.String(17),
         db.ForeignKey('users.id', ondelete='RESTRICT'),
         nullable=False,
         index=True,
@@ -415,7 +426,8 @@ class AgentResearchLog(db.Model):
 class ClauseTemplate(db.Model):
     __tablename__ = 'clause_templates'
 
-    id                 = db.Column(db.Integer, primary_key=True)
+    id                 = db.Column(db.String(17), primary_key=True,
+                                   default=make_id('clause_templates'))
     clause_key         = db.Column(db.String(100), nullable=False)
     clause_text        = db.Column(db.Text, nullable=False)
     version            = db.Column(db.Integer, nullable=False, default=1)

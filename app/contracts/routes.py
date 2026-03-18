@@ -11,6 +11,7 @@ from ..models import db, Lead, Contract, ContractVersion, ClauseTemplate
 from ..extensions import limiter
 from . import llm as contract_llm
 from .pdf import render_pdf
+from utils.id_gen import validate_id_param
 
 contracts_bp = Blueprint('contracts', __name__, url_prefix='/contracts')
 
@@ -39,8 +40,8 @@ def _load_templates() -> dict:
 @limiter.limit('5 per hour')
 def generate():
     data = request.get_json() or {}
-    lead_id = data.get('lead_id')
-    if not isinstance(lead_id, int) or lead_id < 1:
+    lead_id = (data.get('lead_id') or '').strip()
+    if not lead_id:
         return jsonify({'error': 'Invalid lead_id'}), 400
 
     lead = db.get_or_404(Lead, lead_id)
@@ -99,10 +100,14 @@ def generate():
 
 
 # GET /contracts/<lead_id>  — returns current contract JSON
-@contracts_bp.route('/<int:lead_id>', methods=['GET'])
+@contracts_bp.route('/<string:lead_id>', methods=['GET'])
 @login_required
 @role_required('admin', 'legal')
-def get_contract(lead_id: int):
+def get_contract(lead_id: str):
+    try:
+        validate_id_param(lead_id, 'LED')
+    except ValueError:
+        return jsonify({'error': 'Invalid lead ID format'}), 400
     contract = Contract.query.filter_by(lead_id=lead_id).first()
     if not contract:
         return jsonify({}), 200
@@ -110,10 +115,14 @@ def get_contract(lead_id: int):
 
 
 # POST /contracts/<contract_id>/save
-@contracts_bp.route('/<int:contract_id>/save', methods=['POST'])
+@contracts_bp.route('/<string:contract_id>/save', methods=['POST'])
 @login_required
 @role_required('admin', 'legal')
-def save(contract_id: int):
+def save(contract_id: str):
+    try:
+        validate_id_param(contract_id, 'CON')
+    except ValueError:
+        return jsonify({'error': 'Invalid contract ID format'}), 400
     contract = db.get_or_404(Contract, contract_id)
     data = request.get_json() or {}
 
@@ -144,30 +153,39 @@ def save(contract_id: int):
 
 
 # POST /contracts/<contract_id>/approve
-@contracts_bp.route('/<int:contract_id>/approve', methods=['POST'])
+@contracts_bp.route('/<string:contract_id>/approve', methods=['POST'])
 @login_required
 @role_required('admin', 'legal')
-def approve(contract_id: int):
+def approve(contract_id: str):
+    try:
+        validate_id_param(contract_id, 'CON')
+    except ValueError:
+        return jsonify({'error': 'Invalid contract ID format'}), 400
     contract = db.get_or_404(Contract, contract_id)
     data = request.get_json() or {}
     approve_flag = data.get('approved', True)
 
     contract.approved = 1 if approve_flag else 0
-    contract.approved_by = current_user.username if approve_flag else None
+    contract.approved_by = current_user.id if approve_flag else None
     contract.approved_at = datetime.utcnow() if approve_flag else None
     db.session.commit()
     return jsonify({
         'approved': contract.approved,
-        'approved_by': contract.approved_by,
+        'approved_by': (contract.approved_by_user.username
+                        if contract.approved_by_user else None),
         'approved_at': contract.approved_at.isoformat() if contract.approved_at else None,
     }), 200
 
 
 # GET /contracts/<lead_id>/pdf
-@contracts_bp.route('/<int:lead_id>/pdf', methods=['GET'])
+@contracts_bp.route('/<string:lead_id>/pdf', methods=['GET'])
 @login_required
 @role_required('admin', 'legal')
-def pdf(lead_id: int):
+def pdf(lead_id: str):
+    try:
+        validate_id_param(lead_id, 'LED')
+    except ValueError:
+        abort(400, description='Invalid lead ID format')
     lead = db.get_or_404(Lead, lead_id)
     contract = Contract.query.filter_by(lead_id=lead_id).first()
     if not contract:
@@ -181,16 +199,21 @@ def pdf(lead_id: int):
     db.session.commit()
 
     safe = ''.join(c if c.isalnum() else '_' for c in lead.company_name)[:40]
-    filename = f'ComfortLighting_Contract_{safe}_{datetime.now().strftime("%Y-%m-%d")}_v{contract.version}.pdf'
+    filename = (f'ComfortLighting_Contract_{contract.id}_{safe}'
+                f'_{datetime.now().strftime("%Y-%m-%d")}_v{contract.version}.pdf')
     return send_file(io.BytesIO(pdf_bytes), mimetype='application/pdf',
                      as_attachment=True, download_name=filename)
 
 
 # POST /contracts/<contract_id>/mark_sent
-@contracts_bp.route('/<int:contract_id>/mark_sent', methods=['POST'])
+@contracts_bp.route('/<string:contract_id>/mark_sent', methods=['POST'])
 @login_required
 @role_required('admin', 'legal')
-def mark_sent(contract_id: int):
+def mark_sent(contract_id: str):
+    try:
+        validate_id_param(contract_id, 'CON')
+    except ValueError:
+        return jsonify({'error': 'Invalid contract ID format'}), 400
     contract = db.get_or_404(Contract, contract_id)
     data = request.get_json() or {}
     sent = data.get('sent', True)
@@ -217,10 +240,14 @@ def mark_sent(contract_id: int):
 
 
 # GET /contracts/<contract_id>/versions
-@contracts_bp.route('/<int:contract_id>/versions', methods=['GET'])
+@contracts_bp.route('/<string:contract_id>/versions', methods=['GET'])
 @login_required
 @role_required('admin', 'legal')
-def versions(contract_id: int):
+def versions(contract_id: str):
+    try:
+        validate_id_param(contract_id, 'CON')
+    except ValueError:
+        return jsonify({'error': 'Invalid contract ID format'}), 400
     db.get_or_404(Contract, contract_id)
     rows = ContractVersion.query.filter_by(contract_id=contract_id).order_by(ContractVersion.version_number.desc()).all()
     return jsonify([r.to_dict() for r in rows]), 200

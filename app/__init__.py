@@ -88,7 +88,7 @@ def create_app() -> Flask:
 
     @login_manager.user_loader
     def load_user(user_id: str) -> User | None:
-        return db.session.get(User, int(user_id))
+        return db.session.get(User, user_id)
 
     # ── Session timeout ───────────────────────────────────────────────────────
     @app.before_request

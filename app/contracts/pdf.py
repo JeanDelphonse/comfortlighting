@@ -96,7 +96,7 @@ def render_pdf(lead, contract) -> bytes:
     story.append(sig_table)
 
     story.append(Spacer(1, 0.3*inch))
-    story.append(Paragraph(f'Contract Ref: CL-{lead.id:05d}-v{contract.version}  |  Effective Date: _______________', muted_style))
+    story.append(Paragraph(f'Contract Ref: {contract.id}-v{contract.version}  |  Effective Date: _______________', muted_style))
 
     def add_header_footer(canvas, doc):
         canvas.saveState()
@@ -107,7 +107,7 @@ def render_pdf(lead, contract) -> bytes:
             canvas.drawString(1.25*inch, letter[1] - 0.7*inch, 'ComfortLighting.net')
             canvas.drawRightString(letter[0] - 1.25*inch, letter[1] - 0.7*inch, f'Page {doc.page}')
         # Footer
-        footer = f'Contract ID: CL-{lead.id:05d}  |  Version {contract.version}  |  {date.today().strftime("%Y-%m-%d")}  |  CONFIDENTIAL'
+        footer = f'Contract ID: {contract.id}  |  Version {contract.version}  |  {date.today().strftime("%Y-%m-%d")}  |  CONFIDENTIAL'
         canvas.drawCentredString(letter[0]/2, 0.6*inch, footer)
         canvas.restoreState()
 

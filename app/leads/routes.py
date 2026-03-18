@@ -14,6 +14,7 @@ from ..models import db, Lead, User, AgentResearchLog, LeadStageHistory
 from ..constants import ACTION_VALUES, PROGRESS_VALUES, ACTION_BADGE_CLASS, LEADS_PER_PAGE
 from ..decorators import admin_required
 from ..extensions import limiter
+from utils.id_gen import validate_id_param
 
 
 leads_bp = Blueprint('leads', __name__)
@@ -158,17 +159,12 @@ def validate_lead(form_data: dict) -> tuple[dict, dict]:
 
     uid_raw = form_data.get('assigned_user_id', '').strip()
     if uid_raw:
-        try:
-            uid = int(uid_raw)
-            active_user = User.query.filter_by(id=uid, active=True).first()
-            if not active_user:
-                errors['assigned_user_id'] = 'Selected user is not valid.'
-                data['assigned_user_id'] = None
-            else:
-                data['assigned_user_id'] = uid
-        except ValueError:
+        active_user = User.query.filter_by(id=uid_raw, active=True).first()
+        if not active_user:
             errors['assigned_user_id'] = 'Selected user is not valid.'
             data['assigned_user_id'] = None
+        else:
+            data['assigned_user_id'] = uid_raw
     else:
         data['assigned_user_id'] = None
 
@@ -237,8 +233,8 @@ def index():
         query = query.filter(Lead.progress == f_progress)
     if f_assigned == 'unassigned':
         query = query.filter(Lead.assigned_user_id.is_(None))
-    elif f_assigned and f_assigned.isdigit():
-        query = query.filter(Lead.assigned_user_id == int(f_assigned))
+    elif f_assigned:
+        query = query.filter(Lead.assigned_user_id == f_assigned)
     if date_from:
         query = query.filter(Lead.expected >= date_from)
     if date_to:
@@ -289,8 +285,8 @@ def _export_csv() -> Response:
     if f_progress: query = query.filter(Lead.progress == f_progress)
     if f_assigned == 'unassigned':
         query = query.filter(Lead.assigned_user_id.is_(None))
-    elif f_assigned and f_assigned.isdigit():
-        query = query.filter(Lead.assigned_user_id == int(f_assigned))
+    elif f_assigned:
+        query = query.filter(Lead.assigned_user_id == f_assigned)
     if date_from:  query = query.filter(Lead.expected >= date_from)
     if date_to:    query = query.filter(Lead.expected <= date_to)
 
@@ -387,9 +383,13 @@ def add():
     )
 
 
-@leads_bp.route('/leads/<int:lead_id>')
+@leads_bp.route('/leads/<string:lead_id>')
 @login_required
-def view(lead_id: int):
+def view(lead_id: str):
+    try:
+        validate_id_param(lead_id, 'LED')
+    except ValueError:
+        abort(400, description='Invalid lead ID format')
     lead = db.get_or_404(Lead, lead_id)
     from ..models import Proposal, Contract, LeadActivity
 
@@ -433,9 +433,13 @@ def view(lead_id: int):
     )
 
 
-@leads_bp.route('/leads/<int:lead_id>/edit', methods=['GET', 'POST'])
+@leads_bp.route('/leads/<string:lead_id>/edit', methods=['GET', 'POST'])
 @login_required
-def edit(lead_id: int):
+def edit(lead_id: str):
+    try:
+        validate_id_param(lead_id, 'LED')
+    except ValueError:
+        abort(400, description='Invalid lead ID format')
     lead = db.get_or_404(Lead, lead_id)
     errors: dict = {}
     form_data: dict = {}
@@ -502,10 +506,14 @@ def edit(lead_id: int):
     )
 
 
-@leads_bp.route('/leads/<int:lead_id>/delete', methods=['POST'])
+@leads_bp.route('/leads/<string:lead_id>/delete', methods=['POST'])
 @login_required
 @admin_required
-def delete(lead_id: int):
+def delete(lead_id: str):
+    try:
+        validate_id_param(lead_id, 'LED')
+    except ValueError:
+        abort(400, description='Invalid lead ID format')
     lead = db.get_or_404(Lead, lead_id)
     name = lead.company_name
     db.session.delete(lead)
@@ -514,10 +522,14 @@ def delete(lead_id: int):
     return redirect(url_for('leads.index'))
 
 
-@leads_bp.route('/leads/<int:lead_id>/wip', methods=['PATCH'])
+@leads_bp.route('/leads/<string:lead_id>/wip', methods=['PATCH'])
 @login_required
-def toggle_wip(lead_id: int):
+def toggle_wip(lead_id: str):
     """Toggle WIP status for a lead via drag-and-drop. Sets progress='In Progress' to add; clears to remove."""
+    try:
+        validate_id_param(lead_id, 'LED')
+    except ValueError:
+        return jsonify({'success': False, 'error': 'Invalid lead ID format'}), 400
     lead = db.get_or_404(Lead, lead_id)
     data = request.get_json()
     if not data or 'wip' not in data:
@@ -554,10 +566,14 @@ def toggle_wip(lead_id: int):
     })
 
 
-@leads_bp.route('/leads/<int:lead_id>/progress', methods=['PATCH'])
+@leads_bp.route('/leads/<string:lead_id>/progress', methods=['PATCH'])
 @login_required
-def change_progress(lead_id: int):
+def change_progress(lead_id: str):
     """Change the pipeline stage for a lead via the workflow diagram."""
+    try:
+        validate_id_param(lead_id, 'LED')
+    except ValueError:
+        return jsonify({'success': False, 'error': 'Invalid lead ID format'}), 400
     lead = db.get_or_404(Lead, lead_id)
     data = request.get_json()
     if not data or 'progress' not in data:
@@ -623,10 +639,14 @@ def change_progress(lead_id: int):
                     'action': lead.action, 'progress': lead.progress})
 
 
-@leads_bp.route('/leads/<int:lead_id>/hold', methods=['POST'])
+@leads_bp.route('/leads/<string:lead_id>/hold', methods=['POST'])
 @login_required
-def hold(lead_id: int):
+def hold(lead_id: str):
     """Place a lead On Hold, preserving current stage for later restore."""
+    try:
+        validate_id_param(lead_id, 'LED')
+    except ValueError:
+        return jsonify({'success': False, 'error': 'Invalid lead ID format'}), 400
     lead = db.get_or_404(Lead, lead_id)
     if lead.action == 'On Hold':
         return jsonify({'success': True, 'message': 'Already on hold'})
@@ -661,10 +681,14 @@ def hold(lead_id: int):
     return jsonify({'success': True, 'diagram_html': diagram_html})
 
 
-@leads_bp.route('/leads/<int:lead_id>/unhold', methods=['POST'])
+@leads_bp.route('/leads/<string:lead_id>/unhold', methods=['POST'])
 @login_required
-def unhold(lead_id: int):
+def unhold(lead_id: str):
     """Remove On Hold status, restoring the previous stage."""
+    try:
+        validate_id_param(lead_id, 'LED')
+    except ValueError:
+        return jsonify({'success': False, 'error': 'Invalid lead ID format'}), 400
     lead = db.get_or_404(Lead, lead_id)
     if lead.action != 'On Hold':
         return jsonify({'success': True, 'message': 'Not on hold'})
@@ -698,10 +722,14 @@ def unhold(lead_id: int):
     return jsonify({'success': True, 'diagram_html': diagram_html, 'action': lead.action})
 
 
-@leads_bp.route('/leads/<int:lead_id>/stage-history')
+@leads_bp.route('/leads/<string:lead_id>/stage-history')
 @login_required
-def stage_history_api(lead_id: int):
+def stage_history_api(lead_id: str):
     """Return full stage history JSON for a lead."""
+    try:
+        validate_id_param(lead_id, 'LED')
+    except ValueError:
+        return jsonify({'error': 'Invalid lead ID format'}), 400
     lead = db.get_or_404(Lead, lead_id)
     history = lead.stage_history.order_by(LeadStageHistory.changed_at.asc()).all()
     return jsonify([{

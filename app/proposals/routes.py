@@ -10,17 +10,15 @@ from ..models import db, Lead, Proposal
 from ..extensions import limiter
 from . import llm
 from .pdf import render_pdf
+from utils.id_gen import validate_id_param
 
 proposals_bp = Blueprint('proposals', __name__, url_prefix='/proposals')
 
 
 def _validate_lead_id(data: dict):
     """Return (lead_id, error_response) — error_response is None on success."""
-    try:
-        lead_id = int(data.get('lead_id', 0))
-        if lead_id <= 0:
-            raise ValueError
-    except (TypeError, ValueError):
+    lead_id = (data.get('lead_id') or '').strip()
+    if not lead_id:
         return None, (jsonify({'error': 'Invalid lead_id.'}), 400)
     return lead_id, None
 
@@ -99,9 +97,13 @@ def save():
 
 # ── PDF ───────────────────────────────────────────────────────────────────────
 
-@proposals_bp.route('/<int:lead_id>/pdf', methods=['GET'])
+@proposals_bp.route('/<string:lead_id>/pdf', methods=['GET'])
 @login_required
-def pdf(lead_id: int):
+def pdf(lead_id: str):
+    try:
+        validate_id_param(lead_id, 'LED')
+    except ValueError:
+        abort(400, description='Invalid lead ID format')
     lead     = db.get_or_404(Lead, lead_id)
     proposal = Proposal.query.filter_by(lead_id=lead_id).first_or_404()
 
@@ -111,7 +113,8 @@ def pdf(lead_id: int):
     db.session.commit()
 
     safe_name = re.sub(r'[^A-Za-z0-9_]', '_', lead.company_name or '')[:40]
-    filename  = f'ComfortLighting_Proposal_{safe_name}_{datetime.now().strftime("%Y-%m-%d")}.pdf'
+    filename  = (f'ComfortLighting_Proposal_{proposal.id}_{safe_name}'
+                 f'_{datetime.now().strftime("%Y-%m-%d")}.pdf')
 
     return send_file(
         io.BytesIO(pdf_bytes),

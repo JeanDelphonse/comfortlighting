@@ -9,6 +9,7 @@ from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 
 from ..models import db, Lead, LeadActivity, ExpenseCategory, SystemConfig
+from utils.id_gen import validate_id_param
 
 activities_bp = Blueprint('activities', __name__)
 
@@ -97,7 +98,7 @@ def _validate_activity(form_data: dict, files=None) -> tuple[dict, dict]:
         data['category_id'] = None
         data['_category'] = None
     else:
-        sub = ExpenseCategory.query.filter_by(id=int(sub_raw), active=True).first()
+        sub = ExpenseCategory.query.filter_by(id=sub_raw, active=True).first()
         if not sub:
             errors['subcategory_id'] = 'Invalid sub-category.'
             data['subcategory_id'] = None
@@ -105,7 +106,7 @@ def _validate_activity(form_data: dict, files=None) -> tuple[dict, dict]:
             data['category_id'] = None
             data['_category'] = None
         else:
-            data['subcategory_id'] = int(sub_raw)
+            data['subcategory_id'] = sub_raw
             data['_subcategory'] = sub
             # Derive category from subcategory's parent
             if sub.parent_id:
@@ -114,7 +115,7 @@ def _validate_activity(form_data: dict, files=None) -> tuple[dict, dict]:
                 data['_category'] = cat
             else:
                 # Subcategory is actually a top-level category
-                data['category_id'] = int(sub_raw)
+                data['category_id'] = sub_raw
                 data['_category'] = sub
 
     # Activity type / outcome
@@ -232,13 +233,13 @@ def _validate_activity(form_data: dict, files=None) -> tuple[dict, dict]:
     return data, errors
 
 
-def _save_receipt(file, lead_id: int, entry_id: int) -> str | None:
+def _save_receipt(file, lead_id, entry_id) -> str | None:
     """Save uploaded receipt file; returns stored filename."""
     if not file or not file.filename:
         return None
     _, ext = os.path.splitext(file.filename.lower())
     ts        = datetime.utcnow().strftime('%Y%m%d%H%M%S')
-    filename  = secure_filename(f'{entry_id}_{ts}{ext}')
+    filename  = secure_filename(f'receipt_{entry_id}_{ts}{ext}')
     upload_dir = os.path.join(current_app.config['UPLOAD_FOLDER'], 'receipts', str(lead_id))
     os.makedirs(upload_dir, exist_ok=True)
     file.save(os.path.join(upload_dir, filename))
@@ -250,7 +251,7 @@ def _save_receipt(file, lead_id: int, entry_id: int) -> str | None:
 @activities_bp.route('/expenses/subcategories')
 @login_required
 def subcategories():
-    cat_id = request.args.get('category_id', type=int)
+    cat_id = request.args.get('category_id')
     subs = (ExpenseCategory.query
             .filter_by(parent_id=cat_id, active=True)
             .order_by(ExpenseCategory.sort_order)
@@ -260,9 +261,13 @@ def subcategories():
 
 # ── Activity log for a lead ───────────────────────────────────────────────────
 
-@activities_bp.route('/leads/<int:lead_id>/activities')
+@activities_bp.route('/leads/<string:lead_id>/activities')
 @login_required
-def log(lead_id: int):
+def log(lead_id: str):
+    try:
+        validate_id_param(lead_id, 'LED')
+    except ValueError:
+        abort(400, description='Invalid lead ID format')
     lead = db.get_or_404(Lead, lead_id)
     if not _can_access(lead):
         abort(403)
@@ -307,9 +312,13 @@ def log(lead_id: int):
 
 # ── Add entry ─────────────────────────────────────────────────────────────────
 
-@activities_bp.route('/leads/<int:lead_id>/activities/add', methods=['GET', 'POST'])
+@activities_bp.route('/leads/<string:lead_id>/activities/add', methods=['GET', 'POST'])
 @login_required
-def add(lead_id: int):
+def add(lead_id: str):
+    try:
+        validate_id_param(lead_id, 'LED')
+    except ValueError:
+        abort(400, description='Invalid lead ID format')
     lead = db.get_or_404(Lead, lead_id)
     if not _can_access(lead):
         abort(403)
@@ -371,9 +380,14 @@ def add(lead_id: int):
 
 # ── View single entry ─────────────────────────────────────────────────────────
 
-@activities_bp.route('/leads/<int:lead_id>/activities/<int:entry_id>')
+@activities_bp.route('/leads/<string:lead_id>/activities/<string:entry_id>')
 @login_required
-def view_entry(lead_id: int, entry_id: int):
+def view_entry(lead_id: str, entry_id: str):
+    try:
+        validate_id_param(lead_id, 'LED')
+        validate_id_param(entry_id, 'ACT')
+    except ValueError:
+        abort(400, description='Invalid ID format')
     lead  = db.get_or_404(Lead, lead_id)
     entry = db.get_or_404(LeadActivity, entry_id)
     if entry.lead_id != lead_id or not _can_access(lead):
@@ -387,10 +401,15 @@ def view_entry(lead_id: int, entry_id: int):
 
 # ── Edit entry ────────────────────────────────────────────────────────────────
 
-@activities_bp.route('/leads/<int:lead_id>/activities/<int:entry_id>/edit',
+@activities_bp.route('/leads/<string:lead_id>/activities/<string:entry_id>/edit',
                      methods=['GET', 'POST'])
 @login_required
-def edit(lead_id: int, entry_id: int):
+def edit(lead_id: str, entry_id: str):
+    try:
+        validate_id_param(lead_id, 'LED')
+        validate_id_param(entry_id, 'ACT')
+    except ValueError:
+        abort(400, description='Invalid ID format')
     lead  = db.get_or_404(Lead, lead_id)
     entry = db.get_or_404(LeadActivity, entry_id)
     if entry.lead_id != lead_id or not _can_access(lead):
@@ -495,10 +514,15 @@ def edit(lead_id: int, entry_id: int):
 
 # ── Delete entry ──────────────────────────────────────────────────────────────
 
-@activities_bp.route('/leads/<int:lead_id>/activities/<int:entry_id>/delete',
+@activities_bp.route('/leads/<string:lead_id>/activities/<string:entry_id>/delete',
                      methods=['POST'])
 @login_required
-def delete(lead_id: int, entry_id: int):
+def delete(lead_id: str, entry_id: str):
+    try:
+        validate_id_param(lead_id, 'LED')
+        validate_id_param(entry_id, 'ACT')
+    except ValueError:
+        abort(400, description='Invalid ID format')
     lead  = db.get_or_404(Lead, lead_id)
     entry = db.get_or_404(LeadActivity, entry_id)
     if entry.lead_id != lead_id or not _can_access(lead):
@@ -524,10 +548,15 @@ def delete(lead_id: int, entry_id: int):
 
 # ── Submit for approval ───────────────────────────────────────────────────────
 
-@activities_bp.route('/leads/<int:lead_id>/activities/<int:entry_id>/submit',
+@activities_bp.route('/leads/<string:lead_id>/activities/<string:entry_id>/submit',
                      methods=['POST'])
 @login_required
-def submit(lead_id: int, entry_id: int):
+def submit(lead_id: str, entry_id: str):
+    try:
+        validate_id_param(lead_id, 'LED')
+        validate_id_param(entry_id, 'ACT')
+    except ValueError:
+        abort(400, description='Invalid ID format')
     lead  = db.get_or_404(Lead, lead_id)
     entry = db.get_or_404(LeadActivity, entry_id)
     if entry.lead_id != lead_id or not _can_access(lead):
@@ -545,9 +574,14 @@ def submit(lead_id: int, entry_id: int):
 
 # ── Receipt download ──────────────────────────────────────────────────────────
 
-@activities_bp.route('/leads/<int:lead_id>/activities/receipt/<int:entry_id>')
+@activities_bp.route('/leads/<string:lead_id>/activities/receipt/<string:entry_id>')
 @login_required
-def receipt(lead_id: int, entry_id: int):
+def receipt(lead_id: str, entry_id: str):
+    try:
+        validate_id_param(lead_id, 'LED')
+        validate_id_param(entry_id, 'ACT')
+    except ValueError:
+        abort(400, description='Invalid ID format')
     lead  = db.get_or_404(Lead, lead_id)
     entry = db.get_or_404(LeadActivity, entry_id)
     if entry.lead_id != lead_id or not _can_access(lead):

@@ -51,7 +51,7 @@ def users():
 
         # ── Toggle active ─────────────────────────────────────────────────────
         elif action == 'toggle':
-            uid = int(request.form.get('user_id', 0))
+            uid = request.form.get('user_id', '').strip()
             if uid == current_user.id:
                 flash('You cannot deactivate your own account.', 'danger')
             else:
@@ -63,7 +63,7 @@ def users():
 
         # ── Reset password ────────────────────────────────────────────────────
         elif action == 'reset_password':
-            uid      = int(request.form.get('user_id', 0))
+            uid      = request.form.get('user_id', '').strip()
             new_pass = request.form.get('new_password', '')
             if len(new_pass) < 8:
                 flash('New password must be at least 8 characters.', 'danger')
@@ -110,10 +110,10 @@ def expense_queue():
     q = LeadActivity.query.join(Lead, LeadActivity.lead_id == Lead.id)
     if f_status:
         q = q.filter(LeadActivity.status == f_status)
-    if f_lead_id and f_lead_id.isdigit():
-        q = q.filter(LeadActivity.lead_id == int(f_lead_id))
-    if f_user_id and f_user_id.isdigit():
-        q = q.filter(LeadActivity.user_id == int(f_user_id))
+    if f_lead_id:
+        q = q.filter(LeadActivity.lead_id == f_lead_id)
+    if f_user_id:
+        q = q.filter(LeadActivity.user_id == f_user_id)
     if f_from:
         q = q.filter(LeadActivity.activity_date >= f_from)
     if f_to:
@@ -141,7 +141,7 @@ def expense_queue():
 @login_required
 @admin_required
 def expense_approve():
-    entry_id = int(request.form.get('entry_id', 0))
+    entry_id = request.form.get('entry_id', '').strip()
     entry = db.get_or_404(LeadActivity, entry_id)
     if entry.status != 'Submitted':
         flash('Only Submitted entries can be approved.', 'warning')
@@ -158,7 +158,7 @@ def expense_approve():
 @login_required
 @admin_required
 def expense_reject():
-    entry_id     = int(request.form.get('entry_id', 0))
+    entry_id     = request.form.get('entry_id', '').strip()
     review_notes = request.form.get('review_notes', '').strip()
     entry = db.get_or_404(LeadActivity, entry_id)
     if not review_notes:
@@ -180,7 +180,7 @@ def expense_reject():
 @login_required
 @admin_required
 def expense_reimburse():
-    entry_id = int(request.form.get('entry_id', 0))
+    entry_id = request.form.get('entry_id', '').strip()
     entry = db.get_or_404(LeadActivity, entry_id)
     if entry.status != 'Approved':
         flash('Only Approved entries can be marked as Reimbursed.', 'warning')
@@ -201,8 +201,8 @@ def expense_export():
     f_to      = request.args.get('date_to', '').strip()
 
     q = LeadActivity.query
-    if f_lead_id and f_lead_id.isdigit():
-        q = q.filter(LeadActivity.lead_id == int(f_lead_id))
+    if f_lead_id:
+        q = q.filter(LeadActivity.lead_id == f_lead_id)
     if f_from:
         q = q.filter(LeadActivity.activity_date >= f_from)
     if f_to:
@@ -292,8 +292,8 @@ def research_log():
     query = AgentResearchLog.query
     if q:
         query = query.filter(AgentResearchLog.company_searched.ilike(f'%{q}%'))
-    if f_user and f_user.isdigit():
-        query = query.filter(AgentResearchLog.user_id == int(f_user))
+    if f_user:
+        query = query.filter(AgentResearchLog.user_id == f_user)
     if date_from:
         query = query.filter(AgentResearchLog.created_at >= date_from)
     if date_to:

@@ -12,6 +12,7 @@
     <span class="ms-3 badge bg-{{ action_badge_class.get(lead.action, 'secondary') }} fs-6">
       {{ lead.action }}
     </span>
+    <span class="ms-2 text-muted small fw-normal">Lead #{{ lead.id }}</span>
   </div>
   <div class="d-flex gap-2">
     <a href="{{ url_for('leads.edit', lead_id=lead.id) }}" class="btn btn-warning btn-sm fw-semibold">
