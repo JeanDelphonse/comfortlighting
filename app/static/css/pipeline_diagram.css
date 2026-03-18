@@ -1,0 +1,127 @@
+/* ── Pipeline Diagram — ComfortLighting ────────────────────────────────────── */
+
+.pipeline-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  background: #f8fbff;
+  border-radius: 4px;
+  padding: 8px 0 4px;
+}
+
+.pipeline-svg {
+  display: block;
+  min-width: 860px;
+  max-width: 100%;
+  height: 175px;
+}
+
+/* ── Stage Nodes ────────────────────────────────────────────────────────────── */
+
+.stage-node {
+  cursor: pointer;
+}
+
+.stage-node:focus {
+  outline: none;
+}
+
+.stage-node:focus circle {
+  outline: 2px solid #0d6efd;
+  outline-offset: 2px;
+  /* SVG doesn't support CSS outline on shapes; use a filter instead */
+  filter: drop-shadow(0 0 3px #0d6efd);
+}
+
+/* ── Pulse Ring Animation (current stage) ───────────────────────────────────── */
+
+.pulse-ring {
+  animation: pulseRing 2s ease-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@keyframes pulseRing {
+  0%   { transform: scale(1);    opacity: 0.55; }
+  100% { transform: scale(1.55); opacity: 0;    }
+}
+
+/* ── Arrow States ────────────────────────────────────────────────────────────── */
+
+/* Completed forward arrows — muted green */
+.arrow-completed {
+  stroke: #5A9E7A;
+}
+
+/* Most recent (active) forward arrow — bold blue */
+.arrow-active {
+  stroke: #2E75B6;
+}
+
+/* Future arrows — dashed light gray */
+.arrow-future {
+  transition: stroke 0.2s ease;
+}
+
+.arrow-future.arrow-future-hover {
+  stroke: #2E75B6 !important;
+  opacity: 0.6;
+}
+
+/* Retreat arrows — amber */
+.arrow-retreat {
+  stroke: #C9A227;
+}
+
+/* ── Draw-on Animation (new active arrow after stage change) ────────────────── */
+
+.arrow-draw-on {
+  stroke-dasharray: 1200;
+  stroke-dashoffset: 1200;
+}
+
+.arrow-draw-on.arrow-animating {
+  animation: drawArrow 0.45s ease-out forwards;
+}
+
+@keyframes drawArrow {
+  to { stroke-dashoffset: 0; }
+}
+
+/* ── On Hold Badge ───────────────────────────────────────────────────────────── */
+
+.on-hold-badge {
+  display: flex;
+  align-items: center;
+  background: #FFF3CD;
+  border: 1px solid #C9A227;
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-size: 0.85rem;
+  color: #7B5C00;
+  gap: 12px;
+}
+
+/* ── Days-in-stage badge in card header ─────────────────────────────────────── */
+
+.days-warning {
+  color: #c9a227;
+}
+
+.days-stale {
+  color: #dc3545;
+}
+
+/* ── Responsive ──────────────────────────────────────────────────────────────── */
+
+@media (max-width: 900px) {
+  .pipeline-svg {
+    min-width: 700px;
+    height: 175px;
+  }
+}
+
+@media (max-width: 600px) {
+  .pipeline-svg {
+    min-width: 580px;
+  }
+}

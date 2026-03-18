@@ -69,12 +69,47 @@ class Lead(db.Model):
     wip                    = db.Column(db.SmallInteger, nullable=False, default=0, index=True)
     wip_since              = db.Column(db.DateTime, nullable=True)
     agent_research_run_id  = db.Column(db.String(36), nullable=True, index=True)
+    previous_progress      = db.Column(db.String(100), nullable=True)
+    stage_changed_at       = db.Column(db.DateTime, nullable=True)
 
     assigned_user = db.relationship(
         'User',
         backref=db.backref('assigned_leads', lazy='dynamic'),
         foreign_keys=[assigned_user_id],
     )
+
+    stage_history = db.relationship('LeadStageHistory', backref='lead', lazy='dynamic',
+                                      order_by='LeadStageHistory.changed_at.desc()')
+
+    def days_in_stage(self) -> int:
+        """Return days since the stage was last changed."""
+        if self.stage_changed_at:
+            return (datetime.utcnow() - self.stage_changed_at).days
+        return 0
+
+
+class LeadStageHistory(db.Model):
+    __tablename__ = 'lead_stage_history'
+
+    id            = db.Column(db.Integer, primary_key=True)
+    lead_id       = db.Column(
+        db.Integer,
+        db.ForeignKey('leads.id', ondelete='CASCADE'),
+        nullable=False,
+        index=True,
+    )
+    from_stage    = db.Column(db.String(100), nullable=True)
+    to_stage      = db.Column(db.String(100), nullable=False)
+    changed_at    = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    changed_by_id = db.Column(
+        db.Integer,
+        db.ForeignKey('users.id', ondelete='SET NULL'),
+        nullable=True,
+    )
+    reason        = db.Column(db.String(500), nullable=True)
+    days_in_stage = db.Column(db.Numeric(7, 1), nullable=True)
+
+    changed_by = db.relationship('User', backref='stage_changes')
 
 
 class Proposal(db.Model):

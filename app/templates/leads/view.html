@@ -26,6 +26,8 @@
   </div>
 </div>
 
+{% include 'leads/_progress_diagram.html' %}
+
 <div class="row g-4">
 
   <!-- Left column: Contact & Pipeline -->
@@ -730,8 +732,11 @@ async function markContractSent(checked) {
     document.getElementById('contract-sent-cb').checked = !checked;
   }
 }
+
 </script>
 {% endblock %}
+
+{% include 'leads/_stage_modal.html' %}
 
 {% if current_user.is_admin %}
 <!-- Delete confirmation modal -->

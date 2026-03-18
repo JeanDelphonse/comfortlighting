@@ -10,13 +10,79 @@ from flask import (Blueprint, render_template, redirect, url_for,
                    current_app)
 from flask_login import login_required, current_user
 
-from ..models import db, Lead, User, AgentResearchLog
+from ..models import db, Lead, User, AgentResearchLog, LeadStageHistory
 from ..constants import ACTION_VALUES, PROGRESS_VALUES, ACTION_BADGE_CLASS, LEADS_PER_PAGE
 from ..decorators import admin_required
 from ..extensions import limiter
 
 
 leads_bp = Blueprint('leads', __name__)
+
+# Pipeline stages in order (On Hold is excluded — handled separately)
+PIPELINE_STAGES = [
+    'New Lead', 'Call Scheduled', 'Contacted', 'Quote Requested',
+    'Proposal Sent', 'Follow-Up', 'Negotiation', 'Contract',
+    'Contract Sent', 'Closed Won', 'Closed Lost',
+]
+STAGE_IDX = {s: i for i, s in enumerate(PIPELINE_STAGES)}
+
+
+def _build_diagram_context(lead, stage_history):
+    """Pre-process stage history into arrow data for the pipeline diagram template."""
+    is_on_hold    = lead.action == 'On Hold'
+    display_stage = (lead.previous_progress if is_on_hold and lead.previous_progress
+                     else lead.action)
+    display_idx   = STAGE_IDX.get(display_stage, -1)
+
+    forward_arrows = []
+    retreat_arrows = []
+    stage_tooltips = {}   # stage_name -> {reached, days_spent}
+
+    for h in sorted(stage_history, key=lambda h: h.changed_at):
+        # Tooltip tracking: record when each stage was entered
+        if h.to_stage and h.to_stage in STAGE_IDX:
+            stage_tooltips[h.to_stage] = {'reached': h.changed_at, 'days_spent': None}
+        if h.from_stage and h.from_stage in STAGE_IDX and h.days_in_stage is not None:
+            if h.from_stage in stage_tooltips:
+                stage_tooltips[h.from_stage]['days_spent'] = float(h.days_in_stage)
+
+        if not h.from_stage:
+            continue
+        fi = STAGE_IDX.get(h.from_stage, -1)
+        ti = STAGE_IDX.get(h.to_stage, -1)
+        if fi < 0 or ti < 0:
+            continue  # skip On Hold transitions
+
+        if ti > fi:
+            forward_arrows.append({
+                'from_idx': fi, 'to_idx': ti,
+                'from_stage': h.from_stage, 'to_stage': h.to_stage,
+                'changed_at': h.changed_at, 'is_active': False,
+            })
+        elif ti < fi:
+            retreat_arrows.append({
+                'from_idx': fi, 'to_idx': ti,
+                'from_stage': h.from_stage, 'to_stage': h.to_stage,
+                'changed_at': h.changed_at,
+            })
+
+    if forward_arrows:
+        forward_arrows[-1]['is_active'] = True
+
+    days_in_stage = 0
+    if lead.stage_changed_at:
+        days_in_stage = (datetime.utcnow() - lead.stage_changed_at).days
+
+    return dict(
+        forward_arrows=forward_arrows,
+        retreat_arrows=retreat_arrows,
+        display_idx=display_idx,
+        display_stage=display_stage,
+        is_on_hold=is_on_hold,
+        days_in_stage=days_in_stage,
+        pipeline_stages=PIPELINE_STAGES,
+        stage_tooltips=stage_tooltips,
+    )
 
 
 # ── Validation ────────────────────────────────────────────────────────────────
@@ -350,6 +416,9 @@ def view(lead_id: int):
         'reimbursable_amt': float(reimb_amt),
     }
 
+    stage_history = lead.stage_history.order_by(LeadStageHistory.changed_at.asc()).all()
+    diagram_ctx   = _build_diagram_context(lead, stage_history)
+
     return render_template(
         'leads/view.html',
         lead=lead,
@@ -357,6 +426,9 @@ def view(lead_id: int):
         contract=contract,
         recent_activities=recent_activities,
         activity_stats=activity_stats,
+        stage_history=stage_history,
+        now=datetime.utcnow(),
+        **diagram_ctx,
         **lead_context(),
     )
 
@@ -480,6 +552,167 @@ def toggle_wip(lead_id: int):
         'wip_since': lead.wip_since.isoformat() if lead.wip_since else None,
         'progress': lead.progress,
     })
+
+
+@leads_bp.route('/leads/<int:lead_id>/progress', methods=['PATCH'])
+@login_required
+def change_progress(lead_id: int):
+    """Change the pipeline stage for a lead via the workflow diagram."""
+    lead = db.get_or_404(Lead, lead_id)
+    data = request.get_json()
+    if not data or 'progress' not in data:
+        return jsonify({'success': False, 'error': 'Missing progress field'}), 400
+
+    new_progress = data['progress'].strip()
+    reason       = (data.get('reason') or '').strip() or None
+
+    # Only the 11 main pipeline stages are accepted here; On Hold uses /hold
+    if new_progress not in PIPELINE_STAGES:
+        return jsonify({'success': False, 'error': 'Invalid progress value'}), 400
+
+    # Terminal stage override requires admin + reason
+    terminal_stages  = ('Closed Won', 'Closed Lost')
+    is_terminal      = lead.action in terminal_stages
+    becoming_terminal = new_progress in terminal_stages
+
+    if is_terminal and not becoming_terminal and not current_user.is_admin:
+        return jsonify({'success': False, 'error': 'Only admins can re-open closed leads'}), 403
+    if is_terminal and not becoming_terminal and current_user.is_admin and not reason:
+        return jsonify({'success': False, 'error': 'Reason required for terminal stage override'}), 400
+
+    # Calculate days spent in the current stage before moving
+    days_in_from = 0.0
+    if lead.stage_changed_at:
+        days_in_from = round(
+            (datetime.utcnow() - lead.stage_changed_at).total_seconds() / 86400, 1
+        )
+
+    old_action = lead.action
+
+    history = LeadStageHistory(
+        lead_id=lead.id,
+        from_stage=old_action,
+        to_stage=new_progress,
+        changed_by_id=current_user.id,
+        reason=reason,
+        days_in_stage=days_in_from,
+    )
+    db.session.add(history)
+
+    lead.action          = new_progress
+    lead.progress        = new_progress
+    lead.stage_changed_at = datetime.utcnow()
+    lead.previous_progress = None  # clear any On Hold bookmark
+
+    # Sync WIP board: clear wip flag when leaving In Progress via diagram
+    if lead.wip:
+        lead.wip       = 0
+        lead.wip_since = None
+
+    db.session.commit()
+    current_app.logger.info('Lead %s stage changed: %s -> %s', lead.id, old_action, new_progress)
+
+    stage_history = lead.stage_history.order_by(LeadStageHistory.changed_at.asc()).all()
+    diagram_ctx   = _build_diagram_context(lead, stage_history)
+    diagram_html  = render_template(
+        'leads/_progress_diagram.html',
+        lead=lead, stage_history=stage_history, animate_active=True,
+        **diagram_ctx,
+    )
+    return jsonify({'success': True, 'diagram_html': diagram_html,
+                    'action': lead.action, 'progress': lead.progress})
+
+
+@leads_bp.route('/leads/<int:lead_id>/hold', methods=['POST'])
+@login_required
+def hold(lead_id: int):
+    """Place a lead On Hold, preserving current stage for later restore."""
+    lead = db.get_or_404(Lead, lead_id)
+    if lead.action == 'On Hold':
+        return jsonify({'success': True, 'message': 'Already on hold'})
+
+    days_in_from = 0.0
+    if lead.stage_changed_at:
+        days_in_from = round(
+            (datetime.utcnow() - lead.stage_changed_at).total_seconds() / 86400, 1
+        )
+
+    reason = ((request.get_json(silent=True) or {}).get('reason') or '').strip() or None
+    db.session.add(LeadStageHistory(
+        lead_id=lead.id, from_stage=lead.action, to_stage='On Hold',
+        changed_by_id=current_user.id, reason=reason, days_in_stage=days_in_from,
+    ))
+
+    lead.previous_progress = lead.action
+    lead.action            = 'On Hold'
+    lead.progress          = 'On Hold'
+    lead.wip               = 0
+    lead.wip_since         = None
+    lead.stage_changed_at  = datetime.utcnow()
+    db.session.commit()
+
+    stage_history = lead.stage_history.order_by(LeadStageHistory.changed_at.asc()).all()
+    diagram_ctx   = _build_diagram_context(lead, stage_history)
+    diagram_html  = render_template(
+        'leads/_progress_diagram.html',
+        lead=lead, stage_history=stage_history, animate_active=False,
+        **diagram_ctx,
+    )
+    return jsonify({'success': True, 'diagram_html': diagram_html})
+
+
+@leads_bp.route('/leads/<int:lead_id>/unhold', methods=['POST'])
+@login_required
+def unhold(lead_id: int):
+    """Remove On Hold status, restoring the previous stage."""
+    lead = db.get_or_404(Lead, lead_id)
+    if lead.action != 'On Hold':
+        return jsonify({'success': True, 'message': 'Not on hold'})
+
+    restore_stage = lead.previous_progress or 'New Lead'
+
+    days_in_from = 0.0
+    if lead.stage_changed_at:
+        days_in_from = round(
+            (datetime.utcnow() - lead.stage_changed_at).total_seconds() / 86400, 1
+        )
+
+    db.session.add(LeadStageHistory(
+        lead_id=lead.id, from_stage='On Hold', to_stage=restore_stage,
+        changed_by_id=current_user.id, days_in_stage=days_in_from,
+    ))
+
+    lead.action            = restore_stage
+    lead.progress          = restore_stage
+    lead.previous_progress = None
+    lead.stage_changed_at  = datetime.utcnow()
+    db.session.commit()
+
+    stage_history = lead.stage_history.order_by(LeadStageHistory.changed_at.asc()).all()
+    diagram_ctx   = _build_diagram_context(lead, stage_history)
+    diagram_html  = render_template(
+        'leads/_progress_diagram.html',
+        lead=lead, stage_history=stage_history, animate_active=True,
+        **diagram_ctx,
+    )
+    return jsonify({'success': True, 'diagram_html': diagram_html, 'action': lead.action})
+
+
+@leads_bp.route('/leads/<int:lead_id>/stage-history')
+@login_required
+def stage_history_api(lead_id: int):
+    """Return full stage history JSON for a lead."""
+    lead = db.get_or_404(Lead, lead_id)
+    history = lead.stage_history.order_by(LeadStageHistory.changed_at.asc()).all()
+    return jsonify([{
+        'id':           h.id,
+        'from_stage':   h.from_stage,
+        'to_stage':     h.to_stage,
+        'changed_at':   h.changed_at.isoformat(),
+        'changed_by':   h.changed_by.username if h.changed_by else None,
+        'reason':       h.reason,
+        'days_in_stage': float(h.days_in_stage) if h.days_in_stage is not None else None,
+    } for h in history])
 
 
 # ── AI Agent: company research ────────────────────────────────────────────────

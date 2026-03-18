@@ -1,0 +1,70 @@
+{# Stage Change Confirmation Modal — included in view.html #}
+<div class="modal fade" id="stageModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+
+      <div class="modal-header bg-dark text-white">
+        <h5 class="modal-title">
+          <i class="bi bi-diagram-3 me-2"></i>Change Pipeline Stage
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+
+      <div class="modal-body">
+        {# From → To stage badges #}
+        <div class="d-flex align-items-center justify-content-center gap-3 mb-3">
+          <span id="modal-from-badge" class="badge bg-secondary fs-6 px-3 py-2"></span>
+          <i class="bi bi-arrow-right text-muted fs-5"></i>
+          <span id="modal-to-badge" class="badge bg-primary fs-6 px-3 py-2"></span>
+        </div>
+        <p id="modal-stage-desc" class="text-muted small text-center mb-3"></p>
+
+        {# Skip-forward warning #}
+        <div id="modal-skip-warning" class="alert alert-warning small py-2 mb-2 d-none">
+          <i class="bi bi-exclamation-triangle-fill me-1"></i>
+          <span id="modal-skip-msg"></span>
+        </div>
+
+        {# Retreat warning #}
+        <div id="modal-retreat-warning" class="alert alert-info small py-2 mb-2 d-none">
+          <i class="bi bi-arrow-counterclockwise me-1"></i>
+          Moving this lead <strong>backward</strong> to an earlier stage.
+        </div>
+
+        {# Reason field (retreat: optional; terminal override: required) #}
+        <div id="modal-reason-group" class="mb-2 d-none">
+          <label class="form-label small fw-semibold mb-1" for="modal-reason">
+            <span id="modal-reason-label">Reason</span>
+            <span id="modal-reason-required" class="text-danger ms-1 d-none">*Required</span>
+          </label>
+          <textarea id="modal-reason" class="form-control form-control-sm" rows="2"
+                    placeholder="Enter reason..."></textarea>
+        </div>
+
+        {# Closing notes — shown when target is Closed Won or Closed Lost #}
+        <div id="modal-closing-notes-group" class="mb-2 d-none">
+          <label class="form-label small fw-semibold mb-1" for="modal-closing-notes">
+            Closing Notes <span class="text-muted">(optional)</span>
+          </label>
+          <textarea id="modal-closing-notes" class="form-control form-control-sm" rows="2"
+                    placeholder="Notes about this outcome..."></textarea>
+        </div>
+      </div>
+
+      <div class="modal-footer d-flex justify-content-between">
+        <button type="button" id="modal-hold-btn" class="btn btn-warning btn-sm d-none">
+          <i class="bi bi-pause-fill me-1"></i>Put On Hold Instead
+        </button>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">
+            Cancel
+          </button>
+          <button type="button" id="modal-confirm-btn" class="btn btn-primary btn-sm">
+            <i class="bi bi-check-lg me-1"></i>Confirm
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
