@@ -179,7 +179,7 @@
       <td>{{ lead.progress or '–' }}</td>
       <td>{{ ('$' ~ '{:,.0f}'.format(lead.potential|float)) if lead.potential is not none else '–' }}</td>
       <td>{{ lead.expected.strftime('%Y-%m-%d') if lead.expected else '–' }}</td>
-      <td class="text-muted">{{ lead.updated_at.strftime('%b %-d, %Y') }}</td>
+      <td class="text-muted">{{ lead.updated_at.strftime('%b %d, %Y') }}</td>
       <td>
         {% if lead.assigned_user %}
           {% if lead.assigned_user.active %}

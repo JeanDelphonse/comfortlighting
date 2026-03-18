@@ -50,7 +50,7 @@
                 {{ 'Active' if u.active else 'Inactive' }}
               </span>
             </td>
-            <td>{{ u.created_at.strftime('%b %-d, %Y') }}</td>
+            <td>{{ u.created_at.strftime('%b %d, %Y') }}</td>
             <td class="text-center">
               <!-- Toggle active -->
               <form method="post" class="d-inline">
