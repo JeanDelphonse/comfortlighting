@@ -25,14 +25,19 @@ comfortlighting/
 │   │                          # Logging: error.log (ERROR+), research.log (INFO+), console in debug mode
 │   ├── extensions.py          # Flask-Limiter singleton (avoids circular imports)
 │   ├── decorators.py          # Shared decorators: admin_required
-│   ├── models.py              # SQLAlchemy models: User, Lead, Proposal, Contract,
+│   ├── models.py              # SQLAlchemy models: User, Lead, LeadStageHistory, Proposal, Contract,
 │   │                          #   ContractVersion, ClauseTemplate, SystemConfig,
 │   │                          #   ExpenseCategory, LeadActivity, AgentResearchLog
 │   ├── constants.py           # ACTION_VALUES, PROGRESS_VALUES, ACTION_BADGE_CLASS, LEADS_PER_PAGE
 │   ├── auth/routes.py         # /login, /logout
 │   ├── leads/routes.py        # /, /leads/add, /leads/<id>, /leads/<id>/edit, /leads/<id>/delete
 │   │                          # /leads/<id>/wip (PATCH) — toggle WIP via progress field
+│   │                          # /leads/<id>/progress (PATCH) — pipeline stage change; returns diagram HTML fragment
+│   │                          # /leads/<id>/hold (POST) — place On Hold (saves previous_progress)
+│   │                          # /leads/<id>/unhold (POST) — remove On Hold (restores previous_progress)
+│   │                          # /leads/<id>/stage-history (GET) — JSON stage history for a lead
 │   │                          # /leads/research (POST) — AI agent research endpoint
+│   │                          # PIPELINE_STAGES list + _build_diagram_context() helper in routes.py
 │   │                          # validate_lead() handles assigned_user_id server-side
 │   ├── admin/routes.py        # /admin/users, /admin/clause-templates, /admin/clause-templates/<key>
 │   │                          # /admin/expenses, /admin/expenses/approve|reject|reimburse|export
@@ -69,16 +74,21 @@ comfortlighting/
 │   ├── static/
 │   │   ├── .htaccess              # Require all granted — fixes Apache permission error on GoDaddy
 │   │   ├── css/app.css            # Includes .confidence-badge, .confidence-high/medium/low styles
+│   │   ├── css/pipeline_diagram.css  # Arrow states, draw-on @keyframes, pulse-ring, On Hold badge
 │   │   └── js/
 │   │       ├── app.js
 │   │       ├── activity_form.js   # Category AJAX, mileage calc, conditional fields
 │   │       ├── wip_board.js       # WIP drag-and-drop (native HTML5 events, not SortableJS)
 │   │       │                      # Auto-reloads page 6s after drop (undo cancels reload)
-│   │       └── agent_autofill.js  # Research button, progress bar, field population, badges
+│   │       ├── agent_autofill.js  # Research button, progress bar, field population, badges
+│   │       └── pipeline_diagram.js  # Stage node clicks, modal open/confirm, PATCH fetch, DOM replace
 │   └── templates/
 │       ├── base.html              # Includes Expenses nav link + pending badge for admin
+│       │                          # Includes pipeline_diagram.css and pipeline_diagram.js globally
 │       ├── auth/login.html
 │       ├── leads/index.html, add.html, edit.html, view.html, _form.html
+│       │   leads/_progress_diagram.html  # SVG pipeline diagram partial (include + AJAX fragment render)
+│       │   leads/_stage_modal.html       # Bootstrap stage-change confirmation modal
 │       │                          # add.html: RESEARCH_URL uses url_for(_external=True) for absolute URL
 │       │                          # add.html: Research button disabled if SERPER_API_KEY not set
 │       │                          # _form.html has data-agent-field attributes on wrappers
@@ -93,8 +103,10 @@ comfortlighting/
 │   ├── migration_add_wip_columns.sql      # ALTER TABLE leads — add wip, wip_since columns
 │   ├── migration_system_config.sql        # CREATE system_config; seed IRS mileage rate
 │   ├── migration_create_lead_activities.sql  # CREATE expense_categories + lead_activities; seed categories
-│   └── migration_agent_research.sql       # CREATE agent_research_log; ALTER leads ADD agent_research_run_id;
-│                                          # seed 8 ROI config params + agent_daily_token_budget=2000000
+│   ├── migration_agent_research.sql       # CREATE agent_research_log; ALTER leads ADD agent_research_run_id;
+│   │                                      # seed 8 ROI config params + agent_daily_token_budget=2000000
+│   └── migration_workflow_diagram.sql     # ALTER leads ADD previous_progress, stage_changed_at;
+│                                          # CREATE lead_stage_history (with days_in_stage column)
 ├── docs/
 │   └── *.docx / *.xlsx                    # PRD documents and seed data spreadsheet
 └── logs/
