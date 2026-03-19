@@ -445,11 +445,11 @@
 
 {% block scripts %}
 <script>
-const LEAD_ID = {{ lead.id }};
+const LEAD_ID = "{{ lead.id }}";
 const CSRF_TOKEN = "{{ csrf_token() }}";
-const URL_GENERATE  = "{{ url_for('proposals.generate') }}";
-const URL_SAVE      = "{{ url_for('proposals.save') }}";
-const URL_MARK_SENT = "{{ url_for('proposals.mark_sent') }}";
+const URL_GENERATE  = "{{ url_for('proposals.generate', _external=True) }}";
+const URL_SAVE      = "{{ url_for('proposals.save', _external=True) }}";
+const URL_MARK_SENT = "{{ url_for('proposals.mark_sent', _external=True) }}";
 
 async function postJSON(url, body) {
   const resp = await fetch(url, {
@@ -568,11 +568,11 @@ async function markSent(checked) {
 }
 
 // ── Contract JS ────────────────────────────────────────────────────────────
-const CONTRACT_LEAD_ID = {{ lead.id }};
-let contractId = {{ contract.id if contract else 'null' }};
-const URL_CONTRACT_GENERATE = "{{ url_for('contracts.generate') }}";
-const URL_CONTRACT_PDF      = "{{ url_for('contracts.pdf', lead_id=lead.id) }}";
-const CONTRACTS_BASE        = "{{ url_for('contracts.generate') }}".replace('/generate', '');
+const CONTRACT_LEAD_ID = "{{ lead.id }}";
+let contractId = {{ ('"%s"' % contract.id) if contract else 'null' }};
+const URL_CONTRACT_GENERATE = "{{ url_for('contracts.generate', _external=True) }}";
+const URL_CONTRACT_PDF      = "{{ url_for('contracts.pdf', lead_id=lead.id, _external=True) }}";
+const CONTRACTS_BASE        = "{{ url_for('contracts.generate', _external=True) }}".replace('/generate', '');
 
 function urlContractSave(id)     { return CONTRACTS_BASE + '/' + id + '/save'; }
 function urlContractApprove(id)  { return CONTRACTS_BASE + '/' + id + '/approve'; }
